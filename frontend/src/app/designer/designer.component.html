@@ -1,0 +1,43 @@
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-title">Workflow Designer</div>
+      <div class="brand-subtitle">BPMN + Properties + Form</div>
+    </div>
+
+    <div class="controls">
+      <label class="field">
+        <span>Process</span>
+        <input [(ngModel)]="processKey" placeholder="process_key" />
+      </label>
+
+      <label class="field">
+        <span>Version</span>
+        <input [(ngModel)]="version" type="number" min="1" />
+      </label>
+
+      <button type="button" class="btn" (click)="loadFromApi()">Load</button>
+      <button type="button" class="btn primary" (click)="saveToApi()">Save</button>
+      <button type="button" class="btn" (click)="downloadBpmn()">Download BPMN</button>
+      <button type="button" class="btn" (click)="downloadFormSchema()">Download Form</button>
+      <button type="button" class="btn ghost" (click)="resetToDefaults()">Reset</button>
+    </div>
+
+    <div class="status" [title]="status">{{ status }}</div>
+  </header>
+
+  <main class="workspace">
+    <section class="pane pane-bpmn" aria-label="BPMN modeler">
+      <div class="pane-header">BPMN</div>
+      <div class="bpmn-grid">
+        <div #bpmnCanvas class="bpmn-canvas" aria-label="BPMN canvas"></div>
+        <div #propertiesPanel class="bpmn-properties" aria-label="Properties panel"></div>
+      </div>
+    </section>
+
+    <section class="pane pane-form" aria-label="Form editor">
+      <div class="pane-header">Form</div>
+      <div #formEditor class="form-editor" aria-label="Form editor"></div>
+    </section>
+  </main>
+</div>

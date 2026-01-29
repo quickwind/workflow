@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "catalog": [
+    {
+      "id": "capability-search",
+      "name": "Search",
+      "description": "Full text search across tenant data.",
+      "category": "data",
+      "service_url": "https://tenant.example.com/services/search",
+      "metadata": {
+        "tier": "standard"
+      },
+      "service_tasks": [
+        {
+          "id": "task-search-documents",
+          "name": "Search documents",
+          "url": "https://tenant.example.com/tasks/search/documents"
+        }
+      ]
+    }
+  ],
+  "rbac": {
+    "roles": [
+      {
+        "id": "role-admin",
+        "name": "Admin",
+        "description": "Full access"
+      }
+    ],
+    "permissions": [
+      {
+        "id": "perm-manage-users",
+        "name": "Manage users",
+        "description": "Create and update users"
+      }
+    ],
+    "role_permissions": [
+      {
+        "role_id": "role-admin",
+        "permission_id": "perm-manage-users"
+      }
+    ]
+  },
+  "users": [
+    {
+      "id": "user-001",
+      "email": "admin@tenant.example.com",
+      "display_name": "Tenant Admin",
+      "role_ids": [
+        "role-admin"
+      ],
+      "is_active": true
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  id="Definitions_leave_request_v1"
+  targetNamespace="http://example.local/bpmn">
+  <bpmn:process id="leave_request_v1" name="Leave Request v1" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_Leave" name="Start">
+      <bpmn:outgoing>Flow_Start_To_Split</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:parallelGateway id="Gateway_Split" name="Split">
+      <bpmn:incoming>Flow_Start_To_Split</bpmn:incoming>
+      <bpmn:outgoing>Flow_Split_To_UserApprove</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Split_To_ServiceNotify</bpmn:outgoing>
+    </bpmn:parallelGateway>
+
+    <bpmn:userTask id="UserTask_Approve" name="Approve Leave">
+      <bpmn:incoming>Flow_Split_To_UserApprove</bpmn:incoming>
+      <bpmn:outgoing>Flow_UserApprove_To_Join</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask
+      id="ServiceTask_Notify"
+      name="Notify HR"
+      catalogEntryId="cap_leave"
+      serviceTaskId="send_email">
+      <bpmn:incoming>Flow_Split_To_ServiceNotify</bpmn:incoming>
+      <bpmn:outgoing>Flow_ServiceNotify_To_Join</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:parallelGateway id="Gateway_Join" name="Join">
+      <bpmn:incoming>Flow_UserApprove_To_Join</bpmn:incoming>
+      <bpmn:incoming>Flow_ServiceNotify_To_Join</bpmn:incoming>
+      <bpmn:outgoing>Flow_Join_To_End</bpmn:outgoing>
+    </bpmn:parallelGateway>
+
+    <bpmn:endEvent id="EndEvent_Done" name="Done">
+      <bpmn:incoming>Flow_Join_To_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_To_Split" sourceRef="StartEvent_Leave" targetRef="Gateway_Split" />
+    <bpmn:sequenceFlow id="Flow_Split_To_UserApprove" sourceRef="Gateway_Split" targetRef="UserTask_Approve" />
+    <bpmn:sequenceFlow id="Flow_Split_To_ServiceNotify" sourceRef="Gateway_Split" targetRef="ServiceTask_Notify" />
+    <bpmn:sequenceFlow id="Flow_UserApprove_To_Join" sourceRef="UserTask_Approve" targetRef="Gateway_Join" />
+    <bpmn:sequenceFlow id="Flow_ServiceNotify_To_Join" sourceRef="ServiceTask_Notify" targetRef="Gateway_Join" />
+    <bpmn:sequenceFlow id="Flow_Join_To_End" sourceRef="Gateway_Join" targetRef="EndEvent_Done" />
+  </bpmn:process>
+</bpmn:definitions>

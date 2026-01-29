@@ -1,0 +1,27 @@
+/* Global layout baseline for the editor app */
+
+:root {
+  --app-bg: #f4f6f8;
+  --app-surface: #ffffff;
+  --app-border: #d7dde6;
+  --app-text: #0f172a;
+  --app-muted: #52606d;
+  --app-accent: #0b5fff;
+  --app-focus: #0b5fff;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}

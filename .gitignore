@@ -1,0 +1,47 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Django
+*.sqlite3
+local_settings.py
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Node / Angular
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Angular build/cache
+.angular/
+dist/
+
+# Local npm cache/prefix (repo-local)
+.npm-cache/
+.npm-global/
+
+# Internal planning artifacts
+.sisyphus/

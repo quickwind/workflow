@@ -1,0 +1,8 @@
+[tool.pyright]
+typeCheckingMode = "off"
+venvPath = "backend"
+venv = ".venv"
+reportMissingImports = "none"
+reportAttributeAccessIssue = "none"
+extraPaths = ["backend/.venv/lib/python3.14/site-packages"]
+stubPath = "typings"
