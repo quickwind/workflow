@@ -21,7 +21,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure--b2i9^b-x44z@1dswxhr*punef&)zql%7ks^ri^)!0j!%4&_y2"
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY",
+    "django-insecure--b2i9^b-x44z@1dswxhr*punef&)zql%7ks^ri^)!0j!%4&_y2",
+)
 
 
 def _truthy(value: str) -> bool:
