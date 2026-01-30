@@ -14,9 +14,14 @@ from .views import (
     user_task_list_view,
     user_task_actor_role_list_view,
     workflow_definition_upload_view,
+    workflow_definition_list_view,
+    workflow_definition_detail_view,
     workflow_definition_version_detail_view,
     workflow_instance_detail_view,
     workflow_instance_start_view,
+    workflow_group_detail_view,
+    workflow_group_list_create_view,
+    workflow_group_tree_view,
 )
 
 urlpatterns = [
@@ -35,6 +40,31 @@ urlpatterns = [
         "workflows",
         workflow_definition_upload_view,
         name="workflow-upload",
+    ),
+    path(
+        "workflows/list",
+        workflow_definition_list_view,
+        name="workflow-definition-list",
+    ),
+    path(
+        "workflows/<str:process_key>",
+        workflow_definition_detail_view,
+        name="workflow-definition-detail",
+    ),
+    path(
+        "workflow-groups",
+        workflow_group_list_create_view,
+        name="workflow-group-list-create",
+    ),
+    path(
+        "workflow-groups/tree",
+        workflow_group_tree_view,
+        name="workflow-group-tree",
+    ),
+    path(
+        "workflow-groups/<int:group_id>",
+        workflow_group_detail_view,
+        name="workflow-group-detail",
     ),
     path(
         "workflows/<str:process_key>/versions/<int:version>",

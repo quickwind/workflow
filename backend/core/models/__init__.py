@@ -4,6 +4,7 @@ import hashlib
 from typing import Any, cast
 
 from django.db import models
+from django.db.models import Q
 
 
 class Tenant(models.Model):
@@ -172,8 +173,16 @@ class DirectoryUserRole(TenantScopedModel):
 
 
 class WorkflowDefinition(TenantScopedModel):
+    group = models.ForeignKey(
+        "WorkflowGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="definitions",
+    )
     process_key = models.CharField(max_length=200)
     name = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -183,6 +192,34 @@ class WorkflowDefinition(TenantScopedModel):
                 fields=["tenant", "process_key"],
                 name="uniq_workflow_definition_per_tenant",
             )
+        ]
+
+
+class WorkflowGroup(TenantScopedModel):
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(TenantScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "name"],
+                condition=Q(parent__isnull=True),
+                name="uniq_root_workflow_group_name_per_tenant",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "parent", "name"],
+                condition=Q(parent__isnull=False),
+                name="uniq_workflow_group_name_per_parent_per_tenant",
+            ),
         ]
 
 

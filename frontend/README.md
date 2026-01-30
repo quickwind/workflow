@@ -1,5 +1,7 @@
 # Frontend
 
+See the root `README.md` for full backend + frontend setup steps and local dev workflow.
+
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.1.2.
 
 ## Development server

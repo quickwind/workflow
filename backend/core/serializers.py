@@ -9,6 +9,8 @@ from .models import (
     CapabilityCatalogEntry,
     CatalogServiceTask,
     TenantDiscoveryEndpoint,
+    WorkflowDefinition,
+    WorkflowGroup,
     WorkflowDefinitionVersion,
     WorkflowInstance,
     UserTask,
@@ -54,6 +56,66 @@ class CapabilityCatalogEntrySerializer(serializers.ModelSerializer):
 
 class WorkflowDefinitionUploadSerializer(serializers.Serializer):
     bpmn = serializers.FileField()
+    name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    group_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class WorkflowGroupSerializer(serializers.ModelSerializer):
+    parent_id = serializers.IntegerField(required=False, allow_null=True)
+    parent_name = serializers.CharField(source="parent.name", read_only=True)
+
+    class Meta:
+        model = WorkflowGroup
+        fields = (
+            "id",
+            "parent_id",
+            "parent_name",
+            "name",
+            "description",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
+class WorkflowGroupTreeSerializer(serializers.ModelSerializer):
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkflowGroup
+        fields = ("id", "name", "description", "children")
+
+    def get_children(self, obj: WorkflowGroup):
+        children = getattr(obj, "prefetched_children", None) or obj.children.all()
+        return WorkflowGroupTreeSerializer(children, many=True).data
+
+
+class WorkflowDefinitionSerializer(serializers.ModelSerializer):
+    group_id = serializers.IntegerField(allow_null=True, required=False)
+    group_name = serializers.CharField(source="group.name", read_only=True)
+    latest_version = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkflowDefinition
+        fields = (
+            "process_key",
+            "name",
+            "description",
+            "group_id",
+            "group_name",
+            "latest_version",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("process_key", "created_at", "updated_at", "group_name")
+
+    def get_latest_version(self, obj: WorkflowDefinition) -> int | None:
+        versions = getattr(obj, "versions", None)
+        if versions is None:
+            return None
+        latest = versions.order_by("-version").first()
+        return int(latest.version) if latest else None
 
 
 class WorkflowDefinitionVersionSummarySerializer(serializers.ModelSerializer):

@@ -28,6 +28,7 @@ from .models import (
     TenantDiscoveryEndpoint,
     WorkflowDefinition,
     WorkflowDefinitionVersion,
+    WorkflowGroup,
     WorkflowInstance,
     WorkflowInstanceStatus,
     ServiceTask,
@@ -47,6 +48,9 @@ from .serializers import (
     UserTaskCompleteSerializer,
     UserTaskSerializer,
     WorkflowDefinitionUploadSerializer,
+    WorkflowDefinitionSerializer,
+    WorkflowGroupSerializer,
+    WorkflowGroupTreeSerializer,
     WorkflowDefinitionVersionDetailSerializer,
     WorkflowDefinitionVersionSummarySerializer,
     WorkflowInstanceDetailSerializer,
@@ -104,6 +108,9 @@ class WorkflowDefinitionUploadView(APIView):
         serializer.is_valid(raise_exception=True)
         validated_data = cast(dict[str, Any], serializer.validated_data)
         upload = validated_data.get("bpmn")
+        name_override = str(validated_data.get("name") or "").strip()
+        description = str(validated_data.get("description") or "").strip()
+        group_id = validated_data.get("group_id")
         if upload is None:
             return Response(
                 {
@@ -172,12 +179,41 @@ class WorkflowDefinitionUploadView(APIView):
 
         definition_manager = cast(Any, WorkflowDefinition)._default_manager
         version_manager = cast(Any, WorkflowDefinitionVersion)._default_manager
+        group_manager = cast(Any, WorkflowGroup)._default_manager
+
+        group: WorkflowGroup | None = None
+        if group_id is not None:
+            group = group_manager.filter(tenant=request.tenant, id=group_id).first()
+            if group is None:
+                return Response(
+                    {"code": "invalid_group", "message": "Unknown group_id."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         with cast(Any, transaction).atomic():
             definition, _ = definition_manager.get_or_create(
                 tenant=request.tenant,
                 process_key=snapshot.process_key,
-                defaults={"name": snapshot.process_name},
+                defaults={
+                    "name": name_override or snapshot.process_name,
+                    "description": description,
+                    "group": group,
+                },
             )
+            if not _:
+                update_fields: list[str] = []
+                if name_override and definition.name != name_override:
+                    definition.name = name_override
+                    update_fields.append("name")
+                if description and definition.description != description:
+                    definition.description = description
+                    update_fields.append("description")
+                if group_id is not None and definition.group_id != (
+                    group.id if group else None
+                ):
+                    definition.group = group
+                    update_fields.append("group")
+                if update_fields:
+                    definition.save(update_fields=update_fields)
             latest = (
                 version_manager.filter(
                     tenant=request.tenant,
@@ -207,6 +243,219 @@ class WorkflowDefinitionUploadView(APIView):
         )
         response_serializer = WorkflowDefinitionVersionSummarySerializer(version_entry)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkflowGroupListCreateView(APIView):
+    def get(self, request):
+        manager = cast(Any, WorkflowGroup)._default_manager
+        groups = manager.filter(tenant=request.tenant).order_by("name")
+        return Response(WorkflowGroupSerializer(groups, many=True).data)
+
+    def post(self, request):
+        serializer = WorkflowGroupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        parent_id = serializer.validated_data.get("parent_id")
+        parent: WorkflowGroup | None = None
+        if parent_id is not None:
+            manager = cast(Any, WorkflowGroup)._default_manager
+            parent = manager.filter(tenant=request.tenant, id=parent_id).first()
+            if parent is None:
+                return Response(
+                    {"code": "invalid_parent", "message": "Unknown parent_id."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        group = WorkflowGroup.objects.create(
+            tenant=request.tenant,
+            parent=parent,
+            name=str(serializer.validated_data.get("name") or "").strip(),
+            description=str(serializer.validated_data.get("description") or "").strip(),
+        )
+        return Response(
+            WorkflowGroupSerializer(group).data, status=status.HTTP_201_CREATED
+        )
+
+
+class WorkflowGroupDetailView(APIView):
+    def get(self, request, group_id: int):
+        manager = cast(Any, WorkflowGroup)._default_manager
+        group = manager.filter(tenant=request.tenant, id=group_id).first()
+        if group is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(WorkflowGroupSerializer(group).data)
+
+    def patch(self, request, group_id: int):
+        manager = cast(Any, WorkflowGroup)._default_manager
+        group = manager.filter(tenant=request.tenant, id=group_id).first()
+        if group is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = WorkflowGroupSerializer(
+            instance=group, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+
+        update_fields: list[str] = []
+        data = cast(dict[str, Any], serializer.validated_data)
+        if "name" in data:
+            group.name = str(data.get("name") or "").strip()
+            update_fields.append("name")
+        if "description" in data:
+            group.description = str(data.get("description") or "").strip()
+            update_fields.append("description")
+        if "parent_id" in data:
+            parent_id = data.get("parent_id")
+            parent: WorkflowGroup | None = None
+            if parent_id is not None:
+                if int(parent_id) == int(group.id):
+                    return Response(
+                        {
+                            "code": "invalid_parent",
+                            "message": "Group cannot be its own parent.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                parent = manager.filter(tenant=request.tenant, id=parent_id).first()
+                if parent is None:
+                    return Response(
+                        {"code": "invalid_parent", "message": "Unknown parent_id."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                cursor: WorkflowGroup | None = parent
+                while cursor is not None:
+                    if cursor.id == group.id:
+                        return Response(
+                            {
+                                "code": "invalid_parent",
+                                "message": "Parent would create a cycle.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    cursor = (
+                        manager.filter(
+                            tenant=request.tenant, id=cursor.parent_id
+                        ).first()
+                        if cursor.parent_id
+                        else None
+                    )
+
+            group.parent = parent
+            update_fields.append("parent")
+
+        if update_fields:
+            group.save(update_fields=update_fields)
+        return Response(WorkflowGroupSerializer(group).data)
+
+    def delete(self, request, group_id: int):
+        manager = cast(Any, WorkflowGroup)._default_manager
+        group = manager.filter(tenant=request.tenant, id=group_id).first()
+        if group is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if group.children.filter(tenant=request.tenant).exists():
+            return Response(
+                {"code": "group_not_empty", "message": "Group has child groups."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if group.definitions.filter(tenant=request.tenant).exists():
+            return Response(
+                {
+                    "code": "group_not_empty",
+                    "message": "Group has workflow definitions.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        group.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WorkflowGroupTreeView(APIView):
+    def get(self, request):
+        manager = cast(Any, WorkflowGroup)._default_manager
+        groups = list(manager.filter(tenant=request.tenant).order_by("id"))
+
+        by_parent: dict[int | None, list[WorkflowGroup]] = {}
+        for group in groups:
+            by_parent.setdefault(group.parent_id, []).append(group)
+        for parent_id, children in by_parent.items():
+            children.sort(key=lambda g: g.name.lower())
+
+        def attach(node: WorkflowGroup):
+            setattr(node, "prefetched_children", by_parent.get(node.id, []))
+            for child in getattr(node, "prefetched_children", []):
+                attach(child)
+
+        roots = by_parent.get(None, [])
+        for root in roots:
+            attach(root)
+        return Response(WorkflowGroupTreeSerializer(roots, many=True).data)
+
+
+class WorkflowDefinitionListView(ListAPIView):
+    serializer_class = WorkflowDefinitionSerializer
+
+    def get_queryset(self):
+        manager = cast(Any, WorkflowDefinition)._default_manager
+        qs = manager.filter(tenant=self.request.tenant).select_related("group")
+        group_id = self.request.query_params.get("group_id")
+        if group_id is not None:
+            if group_id == "":
+                qs = qs.filter(group__isnull=True)
+            else:
+                qs = qs.filter(group_id=group_id)
+        return qs.order_by("process_key")
+
+
+class WorkflowDefinitionDetailView(APIView):
+    def get(self, request, process_key: str):
+        manager = cast(Any, WorkflowDefinition)._default_manager
+        definition = (
+            manager.select_related("group")
+            .filter(tenant=request.tenant, process_key=process_key)
+            .first()
+        )
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(WorkflowDefinitionSerializer(definition).data)
+
+    def patch(self, request, process_key: str):
+        manager = cast(Any, WorkflowDefinition)._default_manager
+        group_manager = cast(Any, WorkflowGroup)._default_manager
+        definition = manager.filter(
+            tenant=request.tenant, process_key=process_key
+        ).first()
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        data = cast(dict[str, Any], request.data)
+        update_fields: list[str] = []
+
+        if "name" in data:
+            definition.name = str(data.get("name") or "").strip()
+            update_fields.append("name")
+        if "description" in data:
+            definition.description = str(data.get("description") or "").strip()
+            update_fields.append("description")
+        if "group_id" in data:
+            raw_group_id = data.get("group_id")
+            if raw_group_id in (None, "", 0, "0"):
+                definition.group = None
+                update_fields.append("group")
+            else:
+                group = group_manager.filter(
+                    tenant=request.tenant, id=raw_group_id
+                ).first()
+                if group is None:
+                    return Response(
+                        {"code": "invalid_group", "message": "Unknown group_id."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                definition.group = group
+                update_fields.append("group")
+
+        if update_fields:
+            definition.save(update_fields=update_fields)
+        return Response(WorkflowDefinitionSerializer(definition).data)
 
 
 class WorkflowDefinitionVersionDetailView(APIView):
@@ -1176,6 +1425,13 @@ user_task_complete_view = cast(Any, UserTaskCompleteView).as_view()
 service_task_list_view = cast(Any, ServiceTaskListView).as_view()
 service_task_start_view = cast(Any, ServiceTaskStartView).as_view()
 service_task_callback_view = cast(Any, ServiceTaskCallbackView).as_view()
+
+workflow_group_list_create_view = cast(Any, WorkflowGroupListCreateView).as_view()
+workflow_group_detail_view = cast(Any, WorkflowGroupDetailView).as_view()
+workflow_group_tree_view = cast(Any, WorkflowGroupTreeView).as_view()
+
+workflow_definition_list_view = cast(Any, WorkflowDefinitionListView).as_view()
+workflow_definition_detail_view = cast(Any, WorkflowDefinitionDetailView).as_view()
 
 
 # Create your views here.

@@ -1,0 +1,12 @@
+{
+  "typeCheckingMode": "off",
+  "venvPath": "backend",
+  "venv": ".venv",
+  "extraPaths": [
+    "backend/.venv/lib/python3.14/site-packages"
+  ],
+  "stubPath": "backend/typings",
+  "reportMissingImports": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportIncompatibleVariableOverride": "none"
+}

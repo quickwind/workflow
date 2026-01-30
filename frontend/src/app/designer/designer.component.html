@@ -7,12 +7,22 @@
 
     <div class="controls">
       <label class="field">
-        <span>Process</span>
+        <span>Name</span>
+        <input [(ngModel)]="workflowName" placeholder="Workflow name" />
+      </label>
+
+      <label class="field field-wide">
+        <span>Description</span>
+        <input [(ngModel)]="workflowDescription" placeholder="What does this workflow do?" />
+      </label>
+
+      <label class="field">
+        <span>Key</span>
         <input [(ngModel)]="processKey" placeholder="process_key" />
       </label>
 
       <label class="field">
-        <span>Version</span>
+        <span>Loaded</span>
         <input [(ngModel)]="version" type="number" min="1" />
       </label>
 
@@ -26,18 +36,156 @@
     <div class="status" [title]="status">{{ status }}</div>
   </header>
 
-  <main class="workspace">
-    <section class="pane pane-bpmn" aria-label="BPMN modeler">
-      <div class="pane-header">BPMN</div>
-      <div class="bpmn-grid">
-        <div #bpmnCanvas class="bpmn-canvas" aria-label="BPMN canvas"></div>
-        <div #propertiesPanel class="bpmn-properties" aria-label="Properties panel"></div>
+  <div class="body">
+    <aside class="sidebar" aria-label="Workflow sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Library</div>
+        <button type="button" class="btn small" (click)="refreshSidebar()">Reload</button>
       </div>
-    </section>
 
-    <section class="pane pane-form" aria-label="Form editor">
-      <div class="pane-header">Form</div>
-      <div #formEditor class="form-editor" aria-label="Form editor"></div>
-    </section>
-  </main>
+      <section class="sidebar-section" aria-label="Workflow groups">
+        <div class="section-head">
+          <div class="section-title">Groups</div>
+          <div class="section-actions">
+            <button type="button" class="btn small" (click)="createGroup(groupFilterKind === 'group' ? selectedGroupId : null)">
+              New
+            </button>
+            <button
+              type="button"
+              class="btn small"
+              [disabled]="groupFilterKind !== 'group'"
+              (click)="createGroup(selectedGroupId)"
+            >
+              Child
+            </button>
+            <button
+              type="button"
+              class="btn small"
+              [disabled]="groupFilterKind !== 'group'"
+              (click)="renameSelectedGroup()"
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              class="btn small"
+              [disabled]="groupFilterKind !== 'group'"
+              (click)="moveSelectedGroup()"
+            >
+              Move
+            </button>
+            <button
+              type="button"
+              class="btn small danger"
+              [disabled]="groupFilterKind !== 'group'"
+              (click)="deleteSelectedGroup()"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+
+        <div class="group-list" role="tree">
+          <button
+            type="button"
+            class="group-item"
+            [class.active]="groupFilterKind === 'all'"
+            (click)="setGroupFilterAll()"
+          >
+            <span class="group-name">All</span>
+          </button>
+          <button
+            type="button"
+            class="group-item"
+            [class.active]="groupFilterKind === 'ungrouped'"
+            (click)="setGroupFilterUngrouped()"
+          >
+            <span class="group-name">Ungrouped</span>
+          </button>
+
+          <ng-template #groupNodes let-nodes="nodes" let-depth="depth">
+            <ng-container *ngFor="let node of nodes">
+              <button
+                type="button"
+                class="group-item"
+                [class.active]="groupFilterKind === 'group' && selectedGroupId === node.id"
+                [style.paddingLeft.px]="12 + depth * 14"
+                (click)="setGroupFilterGroup(node.id)"
+              >
+                <span class="group-name">{{ node.name || ('Group #' + node.id) }}</span>
+                <span class="group-id">#{{ node.id }}</span>
+              </button>
+
+              <ng-container *ngIf="node.children?.length">
+                <ng-container
+                  *ngTemplateOutlet="groupNodes; context: { nodes: node.children, depth: depth + 1 }"
+                ></ng-container>
+              </ng-container>
+            </ng-container>
+          </ng-template>
+
+          <ng-container *ngTemplateOutlet="groupNodes; context: { nodes: groupTree, depth: 0 }"></ng-container>
+        </div>
+      </section>
+
+      <section class="sidebar-section" aria-label="Workflow list">
+        <div class="section-head">
+          <div class="section-title">Workflows</div>
+          <div class="section-actions">
+            <button type="button" class="btn small" (click)="refreshWorkflowList()">Refresh</button>
+          </div>
+        </div>
+
+        <div class="workflow-meta" *ngIf="selectedWorkflowKey">
+          <div class="meta-row">
+            <div class="meta-label">Group</div>
+            <div class="meta-value">{{ workflowGroupLabel }}</div>
+          </div>
+          <div class="meta-actions">
+            <button
+              type="button"
+              class="btn small"
+              [disabled]="groupFilterKind !== 'group'"
+              (click)="assignWorkflowToSelectedGroup()"
+            >
+              Assign to selected
+            </button>
+            <button type="button" class="btn small" (click)="clearWorkflowGroup()">Ungroup</button>
+          </div>
+        </div>
+
+        <div class="workflow-list" role="listbox">
+          <button
+            type="button"
+            class="workflow-item"
+            *ngFor="let w of workflowList"
+            [class.active]="w.processKey === selectedWorkflowKey"
+            (click)="selectWorkflow(w)"
+          >
+            <div class="workflow-title">{{ w.name || w.processKey }}</div>
+            <div class="workflow-sub">
+              <span class="mono">{{ w.processKey }}</span>
+              <span class="dot">•</span>
+              <span>v{{ w.latestVersion || '?' }}</span>
+            </div>
+          </button>
+        </div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <section class="pane pane-bpmn" aria-label="BPMN modeler">
+        <div class="pane-header">BPMN</div>
+        <div class="bpmn-grid">
+          <div #bpmnCanvas class="bpmn-canvas" aria-label="BPMN canvas"></div>
+          <div #propertiesPanel class="bpmn-properties" aria-label="Properties panel"></div>
+        </div>
+      </section>
+
+      <section class="pane pane-form" aria-label="Form editor">
+        <div class="pane-header">Form</div>
+        <div #formEditor class="form-editor" aria-label="Form editor"></div>
+      </section>
+    </main>
+  </div>
 </div>
