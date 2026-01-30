@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
 import { map, Observable } from 'rxjs';
 
-import type { InstanceState } from '../../../../bpmn-instance-viewer-js/src/types';
+import type { InstanceState } from 'bpmn-instance-viewer-js';
 
 declare global {
   interface Window {

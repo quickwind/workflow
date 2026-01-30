@@ -1,11 +1,12 @@
 FROM bitnami/node:20 AS build
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
+COPY bpmn-instance-viewer-js /app/bpmn-instance-viewer-js
 RUN npm ci
 
-COPY . .
+COPY frontend .
 RUN npm run build -- --configuration production
 
 FROM bitnami/nginx:1.27

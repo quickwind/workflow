@@ -13,7 +13,15 @@
     "experimentalDecorators": true,
     "importHelpers": true,
     "target": "ES2022",
-    "module": "preserve"
+    "module": "preserve",
+    "paths": {
+      "bpmn-instance-viewer-js": [
+        "../bpmn-instance-viewer-js/src/index.ts"
+      ],
+      "bpmn-instance-viewer-js/*": [
+        "../bpmn-instance-viewer-js/src/*"
+      ]
+    }
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,

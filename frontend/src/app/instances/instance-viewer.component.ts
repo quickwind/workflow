@@ -9,7 +9,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
-import { render, type RenderResult } from '../../../../bpmn-instance-viewer-js/src/index';
+import { render, type RenderResult } from 'bpmn-instance-viewer-js';
 import { WorkflowsApiService, type WorkflowInstanceDetail } from '../core/workflows-api.service';
 
 @Component({
