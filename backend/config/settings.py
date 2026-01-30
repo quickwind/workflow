@@ -21,9 +21,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure--b2i9^b-x44z@1dswxhr*punef&)zql%7ks^ri^)!0j!%4&_y2",
+_secret_key_env = os.getenv("DJANGO_SECRET_KEY", "").strip()
+SECRET_KEY = (
+    _secret_key_env
+    or "django-insecure--b2i9^b-x44z@1dswxhr*punef&)zql%7ks^ri^)!0j!%4&_y2"
 )
 
 
@@ -32,7 +33,7 @@ def _truthy(value: str) -> bool:
 
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = _truthy(os.getenv("DJANGO_DEBUG", "true"))
+DEBUG = _truthy(os.getenv("DJANGO_DEBUG", "false"))
 
 
 def _split_csv(value: str) -> list[str]:
@@ -40,7 +41,8 @@ def _split_csv(value: str) -> list[str]:
     return [part for part in parts if part]
 
 
-ALLOWED_HOSTS = _split_csv(os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"))
+_allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS", "").strip()
+ALLOWED_HOSTS = _split_csv(_allowed_hosts_env)
 
 
 # Application definition
@@ -69,6 +71,12 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+
+if not DEBUG:
+    if not _secret_key_env:
+        raise RuntimeError("DJANGO_SECRET_KEY must be set when DEBUG is false.")
+    if not ALLOWED_HOSTS:
+        raise RuntimeError("DJANGO_ALLOWED_HOSTS must be set when DEBUG is false.")
 
 if DEBUG:
     CORS_ALLOWED_ORIGINS = _split_csv(

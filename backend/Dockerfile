@@ -12,8 +12,4 @@ COPY . .
 
 EXPOSE 8000
 
-# Dev-friendly defaults. Override in docker run / compose.
-ENV DJANGO_DEBUG=true
-ENV DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", "--timeout", "60"]
