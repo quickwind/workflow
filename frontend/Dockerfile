@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM bitnami/node:20 AS build
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN npm ci
 COPY . .
 RUN npm run build -- --configuration production
 
-FROM nginx:1.27-alpine
+FROM bitnami/nginx:1.27
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/frontend/browser /usr/share/nginx/html
