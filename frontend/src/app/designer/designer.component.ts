@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { RouterModule } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
   WorkflowDefinitionListItem,
@@ -21,7 +22,7 @@ type BpmnSaveXmlResult = { xml: string };
 
 @Component({
   selector: 'app-designer',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './designer.component.html',
   styleUrl: './designer.component.css'
 })

@@ -1,0 +1,48 @@
+<div class="instances-shell">
+  <header class="instances-header">
+    <div>
+      <h2>Process Instances</h2>
+      <div class="muted">Select a workflow definition to see its instances.</div>
+    </div>
+
+    <div class="controls">
+      <label>
+        <span>Workflow</span>
+        <select [(ngModel)]="processKey" (change)="loadInstances()">
+          <option value="">Select workflow</option>
+          <option *ngFor="let w of workflows" [value]="w.processKey">
+            {{ w.name || w.processKey }} ({{ w.processKey }})
+          </option>
+        </select>
+      </label>
+      <button class="btn" type="button" (click)="loadInstances()">Refresh</button>
+    </div>
+  </header>
+
+  <div class="status">{{ status }}</div>
+
+  <table class="instances-table" *ngIf="instances.length">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Status</th>
+        <th>Business Key</th>
+        <th>Correlation ID</th>
+        <th>Version</th>
+        <th>Started</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let inst of instances">
+        <td>
+          <a [routerLink]="['/instances', inst.id]">#{{ inst.id }}</a>
+        </td>
+        <td>{{ inst.status }}</td>
+        <td>{{ inst.businessKey || '-' }}</td>
+        <td>{{ inst.correlationId || '-' }}</td>
+        <td>{{ inst.version }}</td>
+        <td>{{ inst.createdAt | date: 'short' }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>

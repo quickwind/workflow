@@ -126,6 +126,9 @@ class WorkflowE2ETest(TestCase):
         detail_payload = detail.json()
         self.assertEqual(len(detail_payload["active_user_tasks"]), 1)
         self.assertEqual(len(detail_payload["active_service_tasks"]), 1)
+        self.assertIn("bpmn_xml", detail_payload)
+        self.assertIn("state", detail_payload)
+        self.assertIn("tasks", detail_payload["state"])
 
         user_task_id = detail_payload["active_user_tasks"][0]["id"]
         service_task_id = detail_payload["active_service_tasks"][0]["id"]

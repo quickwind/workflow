@@ -1,0 +1,19 @@
+<div class="viewer-shell">
+  <header class="viewer-header" *ngIf="instance">
+    <div>
+      <h2>Instance #{{ instance.id }}</h2>
+      <div class="muted">
+        {{ instance.processKey }} v{{ instance.version }} · {{ instance.status }}
+      </div>
+    </div>
+    <div class="meta">
+      <div><span>Business Key:</span> {{ instance.businessKey || '-' }}</div>
+      <div><span>Correlation ID:</span> {{ instance.correlationId || '-' }}</div>
+      <div><span>Started:</span> {{ instance.createdAt | date: 'short' }}</div>
+    </div>
+  </header>
+
+  <div class="status">{{ status }}</div>
+
+  <div #viewerHost class="viewer-host"></div>
+</div>

@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { PLATFORM_ID } from '@angular/core';
+import { provideRouter } from '@angular/router';
 
 import { DesignerComponent } from './designer.component';
 import { WorkflowsApiService } from '../core/workflows-api.service';
@@ -10,6 +11,7 @@ describe('DesignerComponent (smoke)', () => {
       imports: [DesignerComponent],
       providers: [
         { provide: PLATFORM_ID, useValue: 'server' },
+        provideRouter([]),
         { provide: WorkflowsApiService, useValue: {} },
       ],
     }).compileComponents();

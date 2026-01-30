@@ -1,0 +1,42 @@
+.viewer-shell {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  min-height: 0;
+}
+
+.viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.meta {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--app-muted, #666);
+}
+
+.meta span {
+  font-weight: 600;
+  color: inherit;
+}
+
+.muted {
+  color: var(--app-muted, #666);
+  font-size: 13px;
+}
+
+.status {
+  color: var(--app-muted, #666);
+  font-size: 12px;
+}
+
+.viewer-host {
+  border: 1px solid var(--app-border, #e1e1e1);
+  border-radius: 12px;
+  min-height: 65vh;
+  background: #fff;
+}

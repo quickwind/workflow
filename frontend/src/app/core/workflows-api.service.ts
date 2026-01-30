@@ -3,6 +3,8 @@ import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
 import { map, Observable } from 'rxjs';
 
+import type { InstanceState } from '../../../../bpmn-instance-viewer-js/src/types';
+
 declare global {
   interface Window {
     __APP_CONFIG__?: {
@@ -42,6 +44,30 @@ export type WorkflowDefinitionListItem = {
   latestVersion: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorkflowInstanceListItem = {
+  id: number;
+  processKey: string;
+  version: number;
+  status: string;
+  correlationId: string;
+  businessKey: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowInstanceDetail = {
+  id: number;
+  processKey: string;
+  version: number;
+  status: string;
+  correlationId: string;
+  businessKey: string;
+  createdAt: string;
+  updatedAt: string;
+  bpmnXml: string;
+  state: InstanceState;
 };
 
 @Injectable({
@@ -127,6 +153,19 @@ export class WorkflowsApiService {
     return this.http
       .get<unknown>(this.url(`/api/workflows/list${suffix}`))
       .pipe(map((raw) => this.normalizeWorkflowDefinitionList(raw)));
+  }
+
+  listWorkflowInstances(processKey: string): Observable<WorkflowInstanceListItem[]> {
+    const safeKey = encodeURIComponent(processKey);
+    return this.http
+      .get<unknown>(this.url(`/api/workflows/${safeKey}/instances`))
+      .pipe(map((raw) => this.normalizeWorkflowInstanceList(raw)));
+  }
+
+  getWorkflowInstance(instanceId: number): Observable<WorkflowInstanceDetail> {
+    return this.http
+      .get<unknown>(this.url(`/api/instances/${encodeURIComponent(String(instanceId))}`))
+      .pipe(map((raw) => this.normalizeWorkflowInstanceDetail(raw)));
   }
 
   patchWorkflowDefinition(
@@ -251,6 +290,63 @@ export class WorkflowsApiService {
       latestVersion: latest !== null && Number.isFinite(latest) ? latest : null,
       createdAt: typeof r['created_at'] === 'string' ? (r['created_at'] as string) : '',
       updatedAt: typeof r['updated_at'] === 'string' ? (r['updated_at'] as string) : ''
+    };
+  }
+
+  private normalizeWorkflowInstanceList(raw: unknown): WorkflowInstanceListItem[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => this.normalizeWorkflowInstanceListItem(item))
+      .filter((v): v is WorkflowInstanceListItem => Boolean(v));
+  }
+
+  private normalizeWorkflowInstanceListItem(raw: unknown): WorkflowInstanceListItem {
+    if (!raw || typeof raw !== 'object') {
+      return {
+        id: 0,
+        processKey: '',
+        version: 0,
+        status: '',
+        correlationId: '',
+        businessKey: '',
+        createdAt: '',
+        updatedAt: ''
+      };
+    }
+
+    const r = raw as Record<string, unknown>;
+    const id = Number(r['id']);
+    const version = Number(r['version']);
+
+    return {
+      id: Number.isFinite(id) ? id : 0,
+      processKey: typeof r['process_key'] === 'string' ? (r['process_key'] as string) : '',
+      version: Number.isFinite(version) ? version : 0,
+      status: typeof r['status'] === 'string' ? (r['status'] as string) : '',
+      correlationId: typeof r['correlation_id'] === 'string' ? (r['correlation_id'] as string) : '',
+      businessKey: typeof r['business_key'] === 'string' ? (r['business_key'] as string) : '',
+      createdAt: typeof r['created_at'] === 'string' ? (r['created_at'] as string) : '',
+      updatedAt: typeof r['updated_at'] === 'string' ? (r['updated_at'] as string) : ''
+    };
+  }
+
+  private normalizeWorkflowInstanceDetail(raw: unknown): WorkflowInstanceDetail {
+    const base = this.normalizeWorkflowInstanceListItem(raw);
+    if (!raw || typeof raw !== 'object') {
+      return {
+        ...base,
+        bpmnXml: '',
+        state: { tasks: [], sequenceFlows: [] }
+      };
+    }
+
+    const r = raw as Record<string, unknown>;
+    const bpmnXml = typeof r['bpmn_xml'] === 'string' ? (r['bpmn_xml'] as string) : '';
+    const state = (r['state'] as InstanceState) || { tasks: [], sequenceFlows: [] };
+    return {
+      ...base,
+      bpmnXml,
+      state
     };
   }
 

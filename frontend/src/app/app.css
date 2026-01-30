@@ -2,3 +2,44 @@
   display: block;
   height: 100%;
 }
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.app-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--app-border, #e1e1e1);
+  background: var(--app-surface, #fff);
+}
+
+.app-title {
+  font-weight: 700;
+}
+
+.app-nav {
+  display: flex;
+  gap: 12px;
+}
+
+.app-nav a {
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.app-nav a.active {
+  background: var(--app-accent, #1f6feb);
+  color: #fff;
+}
+
+.app-body {
+  min-height: 0;
+}

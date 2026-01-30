@@ -28,6 +28,13 @@
 
       <button type="button" class="btn" (click)="loadFromApi()">Load</button>
       <button type="button" class="btn primary" (click)="saveToApi()">Save</button>
+      <a
+        class="btn"
+        [routerLink]="['/instances']"
+        [queryParams]="{ processKey: processKey }"
+      >
+        Instances
+      </a>
       <button type="button" class="btn" (click)="downloadBpmn()">Download BPMN</button>
       <button type="button" class="btn" (click)="downloadFormSchema()">Download Form</button>
       <button type="button" class="btn ghost" (click)="resetToDefaults()">Reset</button>

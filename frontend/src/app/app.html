@@ -1,1 +1,13 @@
-<app-designer></app-designer>
+<div class="app-shell">
+  <header class="app-topbar">
+    <div class="app-title">Workflow Console</div>
+    <nav class="app-nav">
+      <a routerLink="/designer" routerLinkActive="active">Designer</a>
+      <a routerLink="/instances" routerLinkActive="active">Instances</a>
+    </nav>
+  </header>
+
+  <main class="app-body">
+    <router-outlet></router-outlet>
+  </main>
+</div>

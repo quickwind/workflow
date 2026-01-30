@@ -18,6 +18,7 @@ from .views import (
     workflow_definition_detail_view,
     workflow_definition_version_detail_view,
     workflow_instance_detail_view,
+    workflow_instance_list_view,
     workflow_instance_start_view,
     workflow_group_detail_view,
     workflow_group_list_create_view,
@@ -75,6 +76,11 @@ urlpatterns = [
         "workflows/<str:process_key>/versions/<int:version>/instances",
         workflow_instance_start_view,
         name="workflow-instance-start",
+    ),
+    path(
+        "workflows/<str:process_key>/instances",
+        workflow_instance_list_view,
+        name="workflow-instance-list",
     ),
     path(
         "instances/<int:instance_id>",

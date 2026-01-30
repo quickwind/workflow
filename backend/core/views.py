@@ -553,6 +553,24 @@ class WorkflowInstanceStartView(APIView):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
+class WorkflowInstanceListView(ListAPIView):
+    serializer_class = WorkflowInstanceSerializer
+
+    def get_queryset(self):
+        manager = cast(Any, WorkflowInstance)._default_manager
+        process_key = self.kwargs.get("process_key")
+        return (
+            manager.select_related(
+                "definition_version", "definition_version__definition"
+            )
+            .filter(
+                tenant=self.request.tenant,
+                definition_version__definition__process_key=process_key,
+            )
+            .order_by("-created_at")
+        )
+
+
 class WorkflowInstanceDetailView(APIView):
     def get(self, request, instance_id: int):
         manager = cast(Any, WorkflowInstance)._default_manager
@@ -566,7 +584,10 @@ class WorkflowInstanceDetailView(APIView):
         if instance is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         serializer = WorkflowInstanceDetailSerializer(instance)
-        return Response(serializer.data)
+        payload = dict(serializer.data)
+        payload["bpmn_xml"] = instance.definition_version.bpmn_xml
+        payload["state"] = _build_instance_state(instance)
+        return Response(payload)
 
 
 class UserTaskListView(ListAPIView):
@@ -805,6 +826,63 @@ def _create_audit_event(
         definition_version=definition_version,
         payload=payload or {},
     )
+
+
+def _to_iso(dt: Any | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
+def _map_user_task_state(task: UserTask) -> dict[str, Any]:
+    status = "completed" if task.status == UserTaskStatus.COMPLETED else "waiting"
+    user = None
+    if task.actor_identity:
+        user = {"id": task.actor_identity, "name": task.actor_identity}
+    return {
+        "elementId": task.task_id,
+        "status": status,
+        "started_at": _to_iso(task.created_at),
+        "completed_at": _to_iso(task.completed_at),
+        "user": user,
+        "input_data": {},
+        "output_data": task.action_data or {},
+    }
+
+
+def _map_service_task_state(task: ServiceTask) -> dict[str, Any]:
+    if task.status == ServiceTaskStatus.COMPLETED:
+        status = "completed"
+    elif task.status == ServiceTaskStatus.FAILED:
+        status = "failed"
+    elif task.status in (ServiceTaskStatus.WAITING, ServiceTaskStatus.IN_PROGRESS):
+        status = "in_progress"
+    else:
+        status = "waiting"
+
+    element_id = task.element_id or task.task_id
+    return {
+        "elementId": element_id,
+        "status": status,
+        "started_at": _to_iso(task.started_at or task.created_at),
+        "completed_at": _to_iso(task.completed_at),
+        "user": None,
+        "input_data": task.request_payload or {},
+        "output_data": task.response_payload or {},
+    }
+
+
+def _build_instance_state(instance: WorkflowInstance) -> dict[str, Any]:
+    user_tasks = instance.user_tasks.all().order_by("created_at")
+    service_tasks = instance.service_tasks.all().order_by("created_at")
+
+    tasks: list[dict[str, Any]] = [
+        *[_map_user_task_state(task) for task in user_tasks],
+        *[_map_service_task_state(task) for task in service_tasks],
+    ]
+
+    return {
+        "tasks": tasks,
+        "sequenceFlows": [],
+    }
 
 
 def _callback_signature(raw_key: str, body: bytes, timestamp: str) -> str:
@@ -1432,6 +1510,8 @@ workflow_group_tree_view = cast(Any, WorkflowGroupTreeView).as_view()
 
 workflow_definition_list_view = cast(Any, WorkflowDefinitionListView).as_view()
 workflow_definition_detail_view = cast(Any, WorkflowDefinitionDetailView).as_view()
+
+workflow_instance_list_view = cast(Any, WorkflowInstanceListView).as_view()
 
 
 # Create your views here.
