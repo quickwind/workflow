@@ -37,6 +37,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      sample-tenant-app:
+        condition: service_started
     command:
       - sh
       - -c
@@ -55,6 +57,17 @@ services:
       - "4200:80"
     depends_on:
       - backend
+
+  sample-tenant-app:
+    build:
+      context: ./sample-tenant-app
+    image: sample-tenant-app:local
+    environment:
+      TENANT_API_KEY: ${TENANT_API_KEY:-tenant-a-test-key}
+      APP_PORT: "9000"
+      INTERNAL_BASE_URL: "http://sample-tenant-app:9000"
+    ports:
+      - "9000:9000"
 
   tenant-stub:
     image: python:3.12-alpine

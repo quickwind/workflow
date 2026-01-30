@@ -84,6 +84,12 @@ This script will:
 - Upload a BPMN and start an instance
 - Complete a UserTask and simulate a ServiceTask callback
 
+It expects the sample tenant app to be running on port 9000 (Docker Compose includes it by default):
+
+```bash
+docker compose up --build
+```
+
 ```bash
 bash scripts/verify_e2e.sh
 ```
@@ -186,6 +192,9 @@ bash scripts/verify_e2e.sh
 
 - Discovery schema example: `docs/discovery_schema.json`
 - Management command: `python backend/manage.py sync_discovery --tenant <tenant-slug>`
+
+Sample tenant app discovery URL (when running via Compose):
+- `http://sample-tenant-app:9000/.well-known/workflow-discovery`
 
 ## Notes
 

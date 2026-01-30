@@ -61,44 +61,9 @@ TenantApiKey.objects.get_or_create(tenant=tenant, key_hash=key_hash, defaults={"
 print(f"tenant_id={tenant.id} slug={tenant.slug}")
 PY
 
-echo "[3/7] Create discovery payload (file://) + sync into catalog/directory"
-mock_port="${MOCK_PORT:-9999}"
-mock_url="http://127.0.0.1:${mock_port}/service-task"
-
-cat >"$tmpdir/discovery.json" <<EOF
-{
-  "schema_version": "1.0",
-  "catalog": [
-    {
-      "id": "cap_leave",
-      "name": "Leave Service",
-      "description": "",
-      "category": "hr",
-      "service_url": "http://127.0.0.1:${mock_port}",
-      "metadata": {},
-      "service_tasks": [
-        {"id": "send_email", "name": "Send Email", "url": "${mock_url}"}
-      ]
-    }
-  ],
-  "rbac": {
-    "roles": [{"id": "role_hr", "name": "HR"}],
-    "permissions": [{"id": "perm_view", "name": "View"}],
-    "role_permissions": [{"role_id": "role_hr", "permission_id": "perm_view"}]
-  },
-  "users": [
-    {
-      "id": "user_1",
-      "email": "user1@example.com",
-      "display_name": "User One",
-      "role_ids": ["role_hr"],
-      "is_active": true
-    }
-  ]
-}
-EOF
-
-discovery_url="file://$tmpdir/discovery.json"
+echo "[3/7] Register discovery endpoint (sample tenant app) + sync"
+mock_port="${MOCK_PORT:-9000}"
+discovery_url="http://127.0.0.1:${mock_port}/.well-known/workflow-discovery"
 
 curl -fsS -X POST "$API_BASE/discovery/endpoint" \
   -H "Content-Type: application/json" \
@@ -110,34 +75,10 @@ USE_SQLITE=1 DJANGO_SETTINGS_MODULE=config.settings TENANT_SLUG="$TENANT_SLUG" p
 
 curl -fsS "$API_BASE/discovery/catalog" \
   -H "X-Tenant-Api-Key: $TENANT_API_KEY" \
-  | jq -e '.[0].external_id == "cap_leave" and .[0].service_tasks[0].external_id == "send_email"' >/dev/null
+  | jq -e '.[0].external_id == "cap_sample" and .[0].service_tasks | map(.external_id) | (index("sync_task")!=null) and (index("async_task")!=null)' >/dev/null
 
-echo "[4/7] Start local mock service task receiver"
-python - <<PY &
-from __future__ import annotations
-
-import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-class Handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        _ = self.rfile.read(length) if length else b""
-        body = json.dumps({"accepted": True}).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, fmt, *args):
-        return
-
-HTTPServer(("127.0.0.1", int("$mock_port")), Handler).serve_forever()
-PY
-
-MOCK_PID=$!
-sleep 0.2
+echo "[4/7] Verify sample tenant app discovery endpoint"
+curl -fsS "$discovery_url" | jq -e '.schema_version=="1.0"' >/dev/null
 
 echo "[5/7] Upload definition + start instance"
 upload_json="$tmpdir/upload.json"
@@ -180,31 +121,11 @@ curl -fsS -X POST "$API_BASE/tasks/$user_task_id/complete" \
 curl -fsS -X POST "$API_BASE/service-tasks/$service_task_id/start" \
   -H "Content-Type: application/json" \
   -H "X-Tenant-Api-Key: $TENANT_API_KEY" \
-  -d '{"catalog_entry_id":"cap_leave","service_task_id":"send_email","execution_mode":"async","payload":{"kind":"notify"}}' \
+  -d '{"catalog_entry_id":"cap_sample","service_task_id":"async_task","execution_mode":"async","payload":{"kind":"notify"}}' \
   | jq -e '.status=="waiting" and .execution_mode=="async"' >/dev/null
 
-callback_body='{"status":"completed","data":{"ok":true}}'
-callback_timestamp="1700000000"
-callback_sig="$(TENANT_API_KEY="$TENANT_API_KEY" CALLBACK_BODY="$callback_body" CALLBACK_TIMESTAMP="$callback_timestamp" python - <<PY
-import hashlib
-import hmac
-import os
-
-raw_key = os.environ["TENANT_API_KEY"].encode("utf-8")
-body = os.environ["CALLBACK_BODY"].encode("utf-8")
-ts = os.environ["CALLBACK_TIMESTAMP"].encode("utf-8")
-print(hmac.new(raw_key, body + ts, hashlib.sha256).hexdigest())
-PY
-)"
-
-curl -fsS -X POST "$API_BASE/service-tasks/$service_task_id/callback" \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-Api-Key: $TENANT_API_KEY" \
-  -H "X-Callback-Timestamp: $callback_timestamp" \
-  -H "X-Callback-Signature: $callback_sig" \
-  -H "Idempotency-Key: cb-1" \
-  -d "$callback_body" \
-  | jq -e '.status=="completed"' >/dev/null
+echo "Waiting for async callback..."
+sleep 1
 
 echo "[7/7] Verify audit"
 curl -fsS "$API_BASE/audit?workflow_instance_id=$instance_id" \
