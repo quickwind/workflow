@@ -1,3 +1,9 @@
+/**
+ * This component provides the main user interface for designing, managing,
+ * and testing workflows. It integrates bpmn-js for BPMN modeling,
+ * a properties panel for configuration, and form-js for UI schema design.
+ * It also includes a library sidebar for organizing workflows into hierarchical groups.
+ */
 import {
   AfterViewInit,
   Component,
@@ -27,31 +33,40 @@ type BpmnSaveXmlResult = { xml: string };
   styleUrl: './designer.component.css'
 })
 export class DesignerComponent implements AfterViewInit {
+  // DOM element references for editor mounting points.
   @ViewChild('bpmnCanvas', { static: true }) private readonly bpmnCanvas!: ElementRef<HTMLDivElement>;
   @ViewChild('propertiesPanel', { static: true })
   private readonly propertiesPanel!: ElementRef<HTMLDivElement>;
   @ViewChild('formEditor', { static: true }) private readonly formEditorHost!: ElementRef<HTMLDivElement>;
 
+  // --- Component State ---
+
+  // Metadata for the currently loaded workflow.
   processKey = 'example_process';
   version = 1;
-
   workflowName = 'Example Workflow';
   workflowDescription = '';
 
+  // State for the workflow library sidebar (groups and lists).
   groupFilterKind: 'all' | 'ungrouped' | 'group' = 'all';
   selectedGroupId: number | null = null;
   groupTree: WorkflowGroupTreeNode[] = [];
   workflowList: WorkflowDefinitionListItem[] = [];
-
   selectedWorkflowKey: string | null = null;
   workflowGroupId: number | null = null;
 
+  // General UI status.
   status = 'Idle';
 
+  // --- Private Properties ---
+
   private readonly isBrowser: boolean;
+  // Instance of the bpmn-js modeler.
   private bpmnModeler: any | null = null;
+  // Instance of the form-js editor.
   private formEditor: any | null = null;
 
+  // Caches for group metadata to avoid repeated lookups.
   private groupNameById = new Map<number, string>();
   private groupParentById = new Map<number, number | null>();
   private groupDescriptionById = new Map<number, string>();
@@ -96,17 +111,25 @@ export class DesignerComponent implements AfterViewInit {
     this.status = this.isBrowser ? 'Initializing editors...' : 'Browser-only editor (SSR disabled)';
   }
 
+  /**
+   * After the view initializes, this lifecycle hook asynchronously sets up the
+   * BPMN and Form editors, and then loads the initial sidebar data.
+   */
   async ngAfterViewInit(): Promise<void> {
     if (!this.isBrowser) return;
 
     await this.initBpmnModeler();
     await this.initFormEditor();
-
     await this.refreshSidebar();
 
     this.status = 'Ready';
   }
 
+  // --- Sidebar and Library Management ---
+
+  /**
+   * Reloads the entire sidebar, fetching the group hierarchy and then the workflow list.
+   */
   async refreshSidebar(): Promise<void> {
     if (!this.isBrowser) return;
 
@@ -126,6 +149,9 @@ export class DesignerComponent implements AfterViewInit {
     }
   }
 
+  /**
+   * Refreshes the list of workflows based on the currently selected group filter.
+   */
   async refreshWorkflowList(): Promise<void> {
     if (!this.isBrowser) return;
     try {
@@ -161,6 +187,10 @@ export class DesignerComponent implements AfterViewInit {
     await this.refreshWorkflowList();
   }
 
+  /**
+   * Handles the selection of a workflow from the library list, updating the
+   * component state and loading its latest version into the editors.
+   */
   async selectWorkflow(def: WorkflowDefinitionListItem): Promise<void> {
     if (!this.isBrowser) return;
 
@@ -181,6 +211,9 @@ export class DesignerComponent implements AfterViewInit {
     await this.loadFromApi();
   }
 
+  /**
+   * Prompts the user for a name and creates a new workflow group via the API.
+   */
   async createGroup(parentId: number | null): Promise<void> {
     if (!this.isBrowser) return;
 
@@ -292,6 +325,9 @@ export class DesignerComponent implements AfterViewInit {
     return this.groupNameById.get(this.workflowGroupId) || `Group #${this.workflowGroupId}`;
   }
 
+  /**
+   * Populates internal maps for quick lookup of group metadata.
+   */
   private rebuildGroupIndexes(tree: WorkflowGroupTreeNode[]): void {
     this.groupNameById = new Map<number, string>();
     this.groupParentById = new Map<number, number | null>();
@@ -309,6 +345,8 @@ export class DesignerComponent implements AfterViewInit {
     walk(tree || [], null);
   }
 
+  // --- Editor Actions ---
+
   async resetToDefaults(): Promise<void> {
     if (!this.isBrowser || !this.bpmnModeler || !this.formEditor) return;
 
@@ -320,7 +358,10 @@ export class DesignerComponent implements AfterViewInit {
     this.status = 'Ready';
   }
 
-  // Step 4 wires these to backend.
+  /**
+   * Fetches the specified workflow version from the backend and loads its
+   * BPMN and form schema into the editors.
+   */
   async loadFromApi(): Promise<void> {
     if (!this.isBrowser || !this.bpmnModeler || !this.formEditor) return;
 
@@ -352,6 +393,10 @@ export class DesignerComponent implements AfterViewInit {
     }
   }
 
+  /**
+   * Saves the current BPMN XML and form schema to the backend, creating a new
+   * workflow definition version. Also updates the definition's metadata.
+   */
   async saveToApi(): Promise<void> {
     if (!this.isBrowser || !this.bpmnModeler || !this.formEditor) return;
 
@@ -371,6 +416,7 @@ export class DesignerComponent implements AfterViewInit {
       const { xml } = await this.saveBpmnXml();
       const schema = this.formEditor.saveSchema();
 
+      // First, upload the BPMN and form schema to create a new version.
       const uploadResult = await firstValueFrom(
         this.workflowsApi.uploadWorkflow({
           processKey,
@@ -397,6 +443,7 @@ export class DesignerComponent implements AfterViewInit {
         if (Number.isFinite(parsedVersion)) returnedVersion = parsedVersion;
       }
 
+      // Then, update the parent definition's metadata (name, group, etc.).
       await firstValueFrom(
         this.workflowsApi.patchWorkflowDefinition(effectiveProcessKey, {
           name,
@@ -405,6 +452,7 @@ export class DesignerComponent implements AfterViewInit {
         })
       );
 
+      // Update local component state with the saved data.
       this.processKey = effectiveProcessKey;
       this.workflowName = name;
       this.workflowDescription = description;
@@ -436,6 +484,12 @@ export class DesignerComponent implements AfterViewInit {
     this.downloadText(JSON.stringify(schema, null, 2), `${this.processKey || 'workflow'}.form.json`);
   }
 
+  // --- Private Editor Initialization and Helpers ---
+
+  /**
+   * Dynamically imports and initializes the bpmn-js modeler with all required
+   * modules, including properties panel and the SpiffWorkflow extension.
+   */
   private async initBpmnModeler(): Promise<void> {
     const BpmnModeler = (await import('bpmn-js/lib/Modeler')).default;
     const { BpmnPropertiesPanelModule, BpmnPropertiesProviderModule } = await import(
@@ -467,6 +521,9 @@ export class DesignerComponent implements AfterViewInit {
     await this.importBpmnXml(this.defaultBpmnXml);
   }
 
+  /**
+   * Dynamically imports and initializes the form-js editor.
+   */
   private async initFormEditor(): Promise<void> {
     const { FormEditor } = await import('@bpmn-io/form-js');
     const hostEl = this.formEditorHost.nativeElement;

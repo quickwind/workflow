@@ -1,3 +1,9 @@
+/**
+ * This service acts as the primary data layer for the frontend application,
+ * handling all HTTP communication with the backend workflow API. It provides
+ * methods for managing workflow definitions, groups, and instances, and includes
+ * data normalization logic to ensure consistent object shapes within the app.
+ */
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
@@ -12,6 +18,8 @@ declare global {
     };
   }
 }
+
+// --- Data Transfer Object (DTO) type definitions ---
 
 export type WorkflowVersion = {
   bpmnXml: string;
@@ -78,12 +86,20 @@ export class WorkflowsApiService {
 
   constructor(private readonly http: HttpClient) {}
 
+  /**
+   * Reads the API base URL from environment variables or a global window object,
+   * allowing for runtime configuration.
+   */
   private readApiBaseUrl(): string {
     if (environment.apiBaseUrl) return environment.apiBaseUrl;
     if (typeof window === 'undefined') return '';
     return window.__APP_CONFIG__?.apiBaseUrl || '';
   }
 
+  /**
+   * Uploads a BPMN file and its associated metadata to create a new workflow definition version.
+   * @param params The workflow data, including BPMN XML, process key, and optional metadata.
+   */
   uploadWorkflow(params: {
     processKey: string;
     bpmnXml: string;
@@ -104,12 +120,18 @@ export class WorkflowsApiService {
     return this.http.post(this.url('/api/workflows'), formData);
   }
 
+  /**
+   * Fetches the entire hierarchy of workflow groups as a tree structure.
+   */
   getWorkflowGroupsTree(): Observable<WorkflowGroupTreeNode[]> {
     return this.http
       .get<unknown>(this.url('/api/workflow-groups/tree'))
       .pipe(map((raw) => this.normalizeWorkflowGroupTree(raw)));
   }
 
+  /**
+   * Creates a new workflow group.
+   */
   createWorkflowGroup(params: {
     name: string;
     parentId: number | null;
@@ -124,6 +146,9 @@ export class WorkflowsApiService {
       .pipe(map((raw) => this.normalizeWorkflowGroup(raw)));
   }
 
+  /**
+   * Updates a workflow group's metadata (name, description, or parent).
+   */
   patchWorkflowGroup(
     groupId: number,
     params: { name?: string; description?: string; parentId?: number | null }
@@ -138,10 +163,16 @@ export class WorkflowsApiService {
       .pipe(map((raw) => this.normalizeWorkflowGroup(raw)));
   }
 
+  /**
+   * Deletes a workflow group. The group must be empty.
+   */
   deleteWorkflowGroup(groupId: number): Observable<void> {
     return this.http.delete<void>(this.url(`/api/workflow-groups/${encodeURIComponent(String(groupId))}`));
   }
 
+  /**
+   * Lists all workflow definitions, with optional filtering by group.
+   */
   listWorkflowDefinitions(params?: { groupId?: number | null; ungrouped?: boolean }): Observable<
     WorkflowDefinitionListItem[]
   > {
@@ -155,6 +186,9 @@ export class WorkflowsApiService {
       .pipe(map((raw) => this.normalizeWorkflowDefinitionList(raw)));
   }
 
+  /**
+   * Lists all instances for a given workflow definition process key.
+   */
   listWorkflowInstances(processKey: string): Observable<WorkflowInstanceListItem[]> {
     const safeKey = encodeURIComponent(processKey);
     return this.http
@@ -162,12 +196,18 @@ export class WorkflowsApiService {
       .pipe(map((raw) => this.normalizeWorkflowInstanceList(raw)));
   }
 
+  /**
+   * Fetches the full details for a single workflow instance, including the BPMN XML and state object.
+   */
   getWorkflowInstance(instanceId: number): Observable<WorkflowInstanceDetail> {
     return this.http
       .get<unknown>(this.url(`/api/instances/${encodeURIComponent(String(instanceId))}`))
       .pipe(map((raw) => this.normalizeWorkflowInstanceDetail(raw)));
   }
 
+  /**
+   * Updates a workflow definition's metadata (name, description, or group).
+   */
   patchWorkflowDefinition(
     processKey: string,
     params: { name?: string; description?: string; groupId?: number | null }
@@ -183,6 +223,9 @@ export class WorkflowsApiService {
       .pipe(map((raw) => this.normalizeWorkflowDefinitionListItem(raw)));
   }
 
+  /**
+   * Fetches the BPMN XML and form schema for a specific version of a workflow.
+   */
   getWorkflowVersion(processKey: string, version: number): Observable<WorkflowVersion> {
     const safeKey = encodeURIComponent(processKey);
     const safeVersion = encodeURIComponent(String(version));
@@ -192,11 +235,19 @@ export class WorkflowsApiService {
       .pipe(map((raw) => this.normalizeWorkflowVersion(raw)));
   }
 
+  /**
+   * Constructs a full API URL from a given path.
+   */
   private url(path: string): string {
     if (!this.apiBaseUrl) return path;
     if (path.startsWith('/')) return `${this.apiBaseUrl}${path}`;
     return `${this.apiBaseUrl}/${path}`;
   }
+
+  // --- Data Normalization Methods ---
+  // These private methods ensure that the data received from the API conforms to
+  // the strict TypeScript types defined in this service, providing a protective
+  // layer against unexpected API responses.
 
   private normalizeWorkflowGroupTree(raw: unknown): WorkflowGroupTreeNode[] {
     if (!Array.isArray(raw)) return [];

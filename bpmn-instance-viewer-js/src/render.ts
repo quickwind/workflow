@@ -1,3 +1,8 @@
+/**
+ * This module provides the core rendering logic for the BPMN instance viewer.
+ * It uses bpmn-js to display a BPMN diagram and overlays it with status
+ * information from a workflow instance, including task coloring and tooltips.
+ */
 import BpmnViewer from 'bpmn-js/lib/Viewer';
 
 import type {
@@ -8,6 +13,7 @@ import type {
   TaskStatus
 } from './types';
 
+// A set of BPMN element types that are considered tasks for visualization.
 const TASK_ELEMENT_TYPES = new Set<string>([
   'bpmn:UserTask',
   'bpmn:ServiceTask',
@@ -19,6 +25,7 @@ const TASK_ELEMENT_TYPES = new Set<string>([
   'bpmn:SubProcess'
 ]);
 
+// Maps a task status to a corresponding CSS class for styling.
 const MARKER_BY_STATUS: Record<TaskStatus, string> = {
   completed: 'instance-completed',
   in_progress: 'instance-in-progress',
@@ -29,6 +36,7 @@ const MARKER_BY_STATUS: Record<TaskStatus, string> = {
 
 const STYLE_TAG_ID = 'bpmn-instance-viewer-styles';
 
+// Default CSS styles for the viewer, including task colors and tooltip layout.
 const DEFAULT_STYLES = `
 .djs-element.instance-completed .djs-visual > :first-child { fill: #C8E6C9 !important; stroke: #2E7D32 !important; }
 .djs-element.instance-in-progress .djs-visual > :first-child { fill: #BBDEFB !important; stroke: #1565C0 !important; }
@@ -98,6 +106,10 @@ const DEFAULT_STYLES = `
 }
 `;
 
+/**
+ * Injects the necessary CSS styles into the document head if they don't already exist.
+ * This ensures the viewer is styled correctly without requiring manual CSS setup.
+ */
 function ensureStyles(): void {
   if (typeof document === 'undefined') return;
   if (document.getElementById(STYLE_TAG_ID)) return;
@@ -108,6 +120,11 @@ function ensureStyles(): void {
   document.head.appendChild(tag);
 }
 
+/**
+ * Escapes HTML special characters in a string to prevent XSS.
+ * @param value The string to escape.
+ * @returns The escaped string.
+ */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -117,11 +134,21 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Safely formats a JSON object for display in a <pre> tag.
+ * @param value The object to format.
+ * @returns A formatted JSON string.
+ */
 function formatJson(value: Record<string, unknown> | null | undefined): string {
   if (!value || typeof value !== 'object' || Object.keys(value).length === 0) return '{}';
   return JSON.stringify(value, null, 2);
 }
 
+/**
+ * Builds the HTML content for the task detail tooltip.
+ * @param task The state object for a single task.
+ * @returns An HTML string for the tooltip.
+ */
 function buildTooltip(task: InstanceTaskState): string {
   const userLabel = task.user ? task.user.name || task.user.id : 'n/a';
   const input = formatJson(task.input_data);
@@ -145,6 +172,16 @@ function buildTooltip(task: InstanceTaskState): string {
   ].join('');
 }
 
+/**
+ * Renders a BPMN diagram in a given container, highlighting the status of
+ * workflow instance tasks and sequence flows.
+ *
+ * @param container The DOM element to render the viewer into.
+ * @param bpmnXml The BPMN 2.0 XML string for the diagram.
+ * @param state The state object containing the status of tasks and flows.
+ * @param options Optional rendering configurations.
+ * @returns A promise that resolves to a result object with the viewer instance and a destroy function.
+ */
 export async function render(
   container: HTMLElement,
   bpmnXml: string,
@@ -158,6 +195,7 @@ export async function render(
   ensureStyles();
   container.innerHTML = '';
 
+  // Initialize the read-only BPMN viewer.
   const viewer = new BpmnViewer({ container });
   await viewer.importXML(bpmnXml);
 
@@ -174,6 +212,7 @@ export async function render(
     taskByElement.set(task.elementId, task);
   }
 
+  // Apply a default 'not_started' style to all tasks initially.
   const taskElements = elementRegistry.filter((element: any) =>
     TASK_ELEMENT_TYPES.has(element.type)
   );
@@ -182,6 +221,7 @@ export async function render(
     canvas.addMarker(element.id, MARKER_BY_STATUS.not_started);
   }
 
+  // For each task in the state object, apply the specific status marker and add a tooltip.
   for (const task of state.tasks || []) {
     const element = elementRegistry.get(task.elementId);
     if (!element) continue;
@@ -193,6 +233,7 @@ export async function render(
     });
   }
 
+  // For each traversed sequence flow, apply the corresponding marker.
   for (const flow of state.sequenceFlows || []) {
     if (!flow?.elementId) continue;
     const element = elementRegistry.get(flow.elementId);

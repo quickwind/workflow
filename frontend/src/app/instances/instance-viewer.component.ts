@@ -1,3 +1,8 @@
+/**
+ * This component is responsible for displaying a single workflow instance.
+ * It uses the 'bpmn-instance-viewer-js' extension to render the BPMN diagram
+ * with status highlights and detailed tooltips for each task.
+ */
 import {
   AfterViewInit,
   Component,
@@ -19,10 +24,14 @@ import { WorkflowsApiService, type WorkflowInstanceDetail } from '../core/workfl
   styleUrl: './instance-viewer.component.css'
 })
 export class InstanceViewerComponent implements AfterViewInit {
+  // The DOM element where the BPMN viewer will be mounted.
   @ViewChild('viewerHost', { static: true }) private readonly viewerHost!: ElementRef<HTMLDivElement>;
 
+  // --- Component State ---
   instance: WorkflowInstanceDetail | null = null;
   status = 'Loading instance...';
+  
+  // Holds the result from the viewer's render function, including the destroy method.
   private renderResult: RenderResult | null = null;
 
   constructor(
@@ -30,9 +39,14 @@ export class InstanceViewerComponent implements AfterViewInit {
     private readonly workflowsApi: WorkflowsApiService,
     private readonly destroyRef: DestroyRef
   ) {
+    // Register a cleanup function to be called when the component is destroyed.
     this.destroyRef.onDestroy(() => this.cleanup());
   }
 
+  /**
+   * After the view is initialized, this hook fetches the instance details from the
+   * backend and uses the bpmn-instance-viewer-js extension to render the diagram.
+   */
   async ngAfterViewInit(): Promise<void> {
     const instanceId = Number(this.route.snapshot.paramMap.get('instanceId'));
     if (!Number.isFinite(instanceId)) {
@@ -41,11 +55,15 @@ export class InstanceViewerComponent implements AfterViewInit {
     }
 
     try {
+      // 1. Fetch the detailed instance data from the API.
       this.instance = await firstValueFrom(this.workflowsApi.getWorkflowInstance(instanceId));
       if (!this.instance.bpmnXml) {
         this.status = 'Missing BPMN XML for instance';
         return;
       }
+      
+      // 2. Call the render function from the viewer extension, passing it the container,
+      //    the BPMN XML, and the rich state object.
       this.renderResult = await render(this.viewerHost.nativeElement, this.instance.bpmnXml, this.instance.state);
       this.status = 'Ready';
     } catch (err) {
@@ -55,6 +73,10 @@ export class InstanceViewerComponent implements AfterViewInit {
     }
   }
 
+  /**
+   * Cleans up the bpmn-js viewer instance to prevent memory leaks when the
+   * component is destroyed.
+   */
   private cleanup(): void {
     if (this.renderResult) {
       try {
