@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+"""
+Core workflow runtime integration with SpiffWorkflow.
+Handles BPMN parsing, instance execution, state serialization, and ScriptTask sandboxing.
+"""
+
 import os
 import tempfile
 from dataclasses import dataclass
@@ -10,15 +15,24 @@ if TYPE_CHECKING:
 
 
 class WorkflowRuntimeError(RuntimeError):
+    """Base exception for workflow runtime failures."""
+
     pass
 
 
 class ScriptTaskExecutionError(RuntimeError):
+    """Raised when a ScriptTask fails to execute within the sandbox."""
+
     pass
 
 
 @dataclass(frozen=True)
 class WorkflowRunResult:
+    """
+    Result of a workflow execution run.
+    Contains the updated state and lists of tasks that require external action.
+    """
+
     status: str
     serialized_state: dict[str, Any]
     waiting_user_tasks: list["UserTaskSnapshot"]
@@ -28,6 +42,8 @@ class WorkflowRunResult:
 
 @dataclass(frozen=True)
 class UserTaskSnapshot:
+    """Snapshot of a UserTask that is waiting for human interaction."""
+
     task_id: str
     name: str
     task_type: str
@@ -35,6 +51,8 @@ class UserTaskSnapshot:
 
 @dataclass(frozen=True)
 class ServiceTaskSnapshot:
+    """Snapshot of a ServiceTask that is waiting for external REST API execution."""
+
     task_id: str
     name: str
     task_type: str
@@ -42,6 +60,7 @@ class ServiceTaskSnapshot:
     element_name: str
 
 
+# Element types that cause the engine to pause and wait for external input/callback.
 WAITING_TASK_SPEC_NAMES = {
     "UserTask",
     "ManualTask",
@@ -50,7 +69,10 @@ WAITING_TASK_SPEC_NAMES = {
     "ExternalTask",
 }
 
+# Suffix used to identify ScriptTasks in various SpiffWorkflow versions.
 SCRIPT_TASK_SPEC_SUFFIX = "ScriptTask"
+
+# Safe built-in functions allowed within the RestrictedPython sandbox.
 SCRIPT_BUILTINS_ALLOWLIST = {
     "abs",
     "all",
@@ -76,6 +98,7 @@ SCRIPT_BUILTINS_ALLOWLIST = {
     "zip",
 }
 
+# Element types considered 'user tasks' for assignment and notifications.
 USER_WAITING_TASK_SPEC_NAMES = {
     "UserTask",
     "ManualTask",
@@ -87,6 +110,10 @@ def start_workflow_from_definition(
     correlation_id: str = "",
     business_key: str = "",
 ) -> WorkflowRunResult:
+    """
+    Initializes and starts a new workflow instance from a specific BPMN version.
+    Runs automated tasks until the first waiting point is reached.
+    """
     workflow = _build_workflow(definition_version)
     _attach_identifiers(workflow, correlation_id, business_key)
     status, error_message = _run_until_waiting(workflow)
@@ -114,6 +141,10 @@ def resume_workflow_from_state(
     correlation_id: str = "",
     business_key: str = "",
 ) -> WorkflowRunResult:
+    """
+    Resumes a workflow instance from a serialized state.
+    Optionally completes a task with a result before continuing execution.
+    """
     workflow = _load_workflow_from_state(definition_version, serialized_state)
     _attach_identifiers(workflow, correlation_id, business_key)
     if completed_task_id:

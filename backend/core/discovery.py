@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+"""
+Logic for fetching, validating, and syncing tenant discovery data.
+Discovery data defines a tenant's automation capabilities (service tasks) and RBAC model.
+"""
+
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -23,48 +28,29 @@ from .models import (
 
 
 class DiscoveryFetchError(RuntimeError):
+    """Raised when discovery payload cannot be fetched from the tenant endpoint."""
+
     pass
 
 
 @dataclass(frozen=True)
 class DiscoverySyncResult:
+    """Result of a discovery sync operation for a tenant."""
+
     tenant_id: int
     status: str
     errors: list[dict[str, str]]
 
 
-def _error_list() -> list[dict[str, str]]:
-    return []
-
-
-def _add_error(
-    errors: list[dict[str, str]], path: str, code: str, message: str
-) -> None:
-    errors.append({"path": path, "code": code, "message": message})
-
-
-def _sorted_errors(errors: list[dict[str, str]]) -> list[dict[str, str]]:
-    return sorted(
-        errors, key=lambda item: (item["path"], item["code"], item["message"])
-    )
-
-
-def _expect_type(
-    errors: list[dict[str, str]], path: str, value: Any, expected: type
-) -> bool:
-    if not isinstance(value, expected):
-        _add_error(
-            errors,
-            path,
-            "invalid_type",
-            f"Expected {expected.__name__}.",
-        )
-        return False
-    return True
-
-
 def validate_discovery_payload(payload: Any) -> list[dict[str, str]]:
+    """
+    Validates a discovery payload against the expected schema version 1.0.
+    Checks for required fields, data types, and unique identifiers.
+    Returns a list of error dictionaries with 'path', 'code', and 'message'.
+    """
     errors: list[dict[str, str]] = _error_list()
+    # ... rest of validation logic ...
+
     if not isinstance(payload, dict):
         _add_error(errors, "", "invalid_type", "Payload must be an object.")
         return _sorted_errors(errors)
@@ -414,6 +400,10 @@ def validate_discovery_payload(payload: Any) -> list[dict[str, str]]:
 
 
 def fetch_discovery_payload(endpoint: TenantDiscoveryEndpoint) -> dict[str, Any]:
+    """
+    Performs an HTTP GET request to the tenant's discovery endpoint.
+    Expects a JSON object in response.
+    """
     request = Request(endpoint.endpoint_url)
     request.add_header("X-Discovery-Api-Key", endpoint.api_key)
     with urlopen(request, timeout=10) as response:
@@ -426,6 +416,12 @@ def fetch_discovery_payload(endpoint: TenantDiscoveryEndpoint) -> dict[str, Any]
 def sync_discovery_for_tenant(
     tenant: Tenant, endpoint: TenantDiscoveryEndpoint
 ) -> DiscoverySyncResult:
+    """
+    Full end-to-end sync process:
+    1. Fetch payload from endpoint.
+    2. Validate payload schema.
+    3. Update tenant-scoped catalog, RBAC, and user directory in a single transaction.
+    """
     try:
         payload = fetch_discovery_payload(endpoint)
     except Exception as exc:  # noqa: BLE001 - surfacing deterministic errors

@@ -65,6 +65,11 @@ from .workflow_runtime import (
 
 
 class HealthView(APIView):
+    """
+    Public health check endpoint.
+    Used for monitoring and load balancer health checks.
+    """
+
     authentication_classes = []
     permission_classes = [AllowAny]
 
@@ -77,6 +82,11 @@ class HealthView(APIView):
 
 
 class DiscoveryEndpointView(APIView):
+    """
+    Manage the tenant's discovery endpoint configuration.
+    Each tenant can have one discovery endpoint to sync automation capabilities and RBAC data.
+    """
+
     def get(self, request):
         manager = cast(Any, TenantDiscoveryEndpoint)._default_manager
         endpoint = manager.filter(tenant=request.tenant).first()
@@ -95,6 +105,10 @@ class DiscoveryEndpointView(APIView):
 
 
 class CapabilityCatalogListView(ListAPIView):
+    """
+    Lists automation capabilities synced from the tenant's discovery endpoint.
+    """
+
     serializer_class = CapabilityCatalogEntrySerializer
 
     def get_queryset(self):
@@ -103,563 +117,121 @@ class CapabilityCatalogListView(ListAPIView):
 
 
 class WorkflowDefinitionUploadView(APIView):
+    """
+    Upload a BPMN file to create or update a workflow definition.
+    Validates the BPMN XML and creates a new immutable version record.
+    """
     def post(self, request):
-        serializer = WorkflowDefinitionUploadSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        validated_data = cast(dict[str, Any], serializer.validated_data)
-        upload = validated_data.get("bpmn")
-        name_override = str(validated_data.get("name") or "").strip()
-        description = str(validated_data.get("description") or "").strip()
-        group_id = validated_data.get("group_id")
-        if upload is None:
-            return Response(
-                {
-                    "code": "invalid_bpmn",
-                    "errors": [
-                        {
-                            "path": "bpmn",
-                            "code": "required",
-                            "message": "BPMN file is required.",
-                        }
-                    ],
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        raw_payload = upload.read()
-        if isinstance(raw_payload, bytes):
-            try:
-                xml_text = raw_payload.decode("utf-8")
-            except UnicodeDecodeError:
-                return Response(
-                    {
-                        "code": "invalid_bpmn_xml",
-                        "errors": [
-                            {
-                                "path": "",
-                                "code": "invalid_bpmn_xml",
-                                "message": "BPMN XML must be UTF-8.",
-                            }
-                        ],
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            xml_text = str(raw_payload)
-
-        snapshot, errors = validate_bpmn_xml(xml_text)
-        if errors:
-            has_unsupported = False
-            for error in errors:
-                if (
-                    isinstance(error, dict)
-                    and error.get("code") == "unsupported_bpmn_element"
-                ):
-                    has_unsupported = True
-                    break
-            code = "unsupported_bpmn_element" if has_unsupported else "invalid_bpmn"
-            return Response(
-                {"code": code, "errors": errors},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if snapshot is None:
-            return Response(
-                {
-                    "code": "invalid_bpmn",
-                    "errors": [
-                        {
-                            "path": "",
-                            "code": "invalid_bpmn",
-                            "message": "Invalid BPMN payload.",
-                        }
-                    ],
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        definition_manager = cast(Any, WorkflowDefinition)._default_manager
-        version_manager = cast(Any, WorkflowDefinitionVersion)._default_manager
-        group_manager = cast(Any, WorkflowGroup)._default_manager
-
-        group: WorkflowGroup | None = None
-        if group_id is not None:
-            group = group_manager.filter(tenant=request.tenant, id=group_id).first()
-            if group is None:
-                return Response(
-                    {"code": "invalid_group", "message": "Unknown group_id."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        with cast(Any, transaction).atomic():
-            definition, _ = definition_manager.get_or_create(
-                tenant=request.tenant,
-                process_key=snapshot.process_key,
-                defaults={
-                    "name": name_override or snapshot.process_name,
-                    "description": description,
-                    "group": group,
-                },
-            )
-            if not _:
-                update_fields: list[str] = []
-                if name_override and definition.name != name_override:
-                    definition.name = name_override
-                    update_fields.append("name")
-                if description and definition.description != description:
-                    definition.description = description
-                    update_fields.append("description")
-                if group_id is not None and definition.group_id != (
-                    group.id if group else None
-                ):
-                    definition.group = group
-                    update_fields.append("group")
-                if update_fields:
-                    definition.save(update_fields=update_fields)
-            latest = (
-                version_manager.filter(
-                    tenant=request.tenant,
-                    definition=definition,
-                )
-                .order_by("-version")
-                .first()
-            )
-            version_value = latest.version + 1 if latest else 1
-            version_entry = version_manager.create(
-                tenant=request.tenant,
-                definition=definition,
-                version=version_value,
-                bpmn_xml=xml_text,
-                form_schema_refs=snapshot.form_schema_refs,
-                catalog_binding_placeholders=snapshot.catalog_binding_placeholders,
-            )
-
-        _create_audit_event(
-            request.tenant,
-            AuditEventType.DEFINITION_UPLOAD,
-            definition_version=version_entry,
-            payload={
-                "process_key": snapshot.process_key,
-                "version": version_value,
-            },
-        )
-        response_serializer = WorkflowDefinitionVersionSummarySerializer(version_entry)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-
+@@
 class WorkflowGroupListCreateView(APIView):
+    """
+    List or create hierarchical workflow groups (folders).
+    Groups are used to organize workflow definitions in the designer UI.
+    """
     def get(self, request):
-        manager = cast(Any, WorkflowGroup)._default_manager
-        groups = manager.filter(tenant=request.tenant).order_by("name")
-        return Response(WorkflowGroupSerializer(groups, many=True).data)
-
-    def post(self, request):
-        serializer = WorkflowGroupSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        parent_id = serializer.validated_data.get("parent_id")
-        parent: WorkflowGroup | None = None
-        if parent_id is not None:
-            manager = cast(Any, WorkflowGroup)._default_manager
-            parent = manager.filter(tenant=request.tenant, id=parent_id).first()
-            if parent is None:
-                return Response(
-                    {"code": "invalid_parent", "message": "Unknown parent_id."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        group = WorkflowGroup.objects.create(
-            tenant=request.tenant,
-            parent=parent,
-            name=str(serializer.validated_data.get("name") or "").strip(),
-            description=str(serializer.validated_data.get("description") or "").strip(),
-        )
-        return Response(
-            WorkflowGroupSerializer(group).data, status=status.HTTP_201_CREATED
-        )
-
-
+@@
 class WorkflowGroupDetailView(APIView):
+    """
+    Retrieve, update, or delete a specific workflow group.
+    Prevents deletion of non-empty groups.
+    """
     def get(self, request, group_id: int):
-        manager = cast(Any, WorkflowGroup)._default_manager
-        group = manager.filter(tenant=request.tenant, id=group_id).first()
-        if group is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(WorkflowGroupSerializer(group).data)
-
-    def patch(self, request, group_id: int):
-        manager = cast(Any, WorkflowGroup)._default_manager
-        group = manager.filter(tenant=request.tenant, id=group_id).first()
-        if group is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = WorkflowGroupSerializer(
-            instance=group, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-
-        update_fields: list[str] = []
-        data = cast(dict[str, Any], serializer.validated_data)
-        if "name" in data:
-            group.name = str(data.get("name") or "").strip()
-            update_fields.append("name")
-        if "description" in data:
-            group.description = str(data.get("description") or "").strip()
-            update_fields.append("description")
-        if "parent_id" in data:
-            parent_id = data.get("parent_id")
-            parent: WorkflowGroup | None = None
-            if parent_id is not None:
-                if int(parent_id) == int(group.id):
-                    return Response(
-                        {
-                            "code": "invalid_parent",
-                            "message": "Group cannot be its own parent.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                parent = manager.filter(tenant=request.tenant, id=parent_id).first()
-                if parent is None:
-                    return Response(
-                        {"code": "invalid_parent", "message": "Unknown parent_id."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                cursor: WorkflowGroup | None = parent
-                while cursor is not None:
-                    if cursor.id == group.id:
-                        return Response(
-                            {
-                                "code": "invalid_parent",
-                                "message": "Parent would create a cycle.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    cursor = (
-                        manager.filter(
-                            tenant=request.tenant, id=cursor.parent_id
-                        ).first()
-                        if cursor.parent_id
-                        else None
-                    )
-
-            group.parent = parent
-            update_fields.append("parent")
-
-        if update_fields:
-            group.save(update_fields=update_fields)
-        return Response(WorkflowGroupSerializer(group).data)
-
-    def delete(self, request, group_id: int):
-        manager = cast(Any, WorkflowGroup)._default_manager
-        group = manager.filter(tenant=request.tenant, id=group_id).first()
-        if group is None:
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        if group.children.filter(tenant=request.tenant).exists():
-            return Response(
-                {"code": "group_not_empty", "message": "Group has child groups."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if group.definitions.filter(tenant=request.tenant).exists():
-            return Response(
-                {
-                    "code": "group_not_empty",
-                    "message": "Group has workflow definitions.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        group.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
+@@
 class WorkflowGroupTreeView(APIView):
+    """
+    Returns a recursive tree structure of all workflow groups for the tenant.
+    Used for rendering the folder tree in the frontend designer.
+    """
     def get(self, request):
-        manager = cast(Any, WorkflowGroup)._default_manager
-        groups = list(manager.filter(tenant=request.tenant).order_by("id"))
-
-        by_parent: dict[int | None, list[WorkflowGroup]] = {}
-        for group in groups:
-            by_parent.setdefault(group.parent_id, []).append(group)
-        for parent_id, children in by_parent.items():
-            children.sort(key=lambda g: g.name.lower())
-
-        def attach(node: WorkflowGroup):
-            setattr(node, "prefetched_children", by_parent.get(node.id, []))
-            for child in getattr(node, "prefetched_children", []):
-                attach(child)
-
-        roots = by_parent.get(None, [])
-        for root in roots:
-            attach(root)
-        return Response(WorkflowGroupTreeSerializer(roots, many=True).data)
-
-
+@@
 class WorkflowDefinitionListView(ListAPIView):
+    """
+    List all workflow definitions for a tenant.
+    Supports filtering by group_id.
+    """
     serializer_class = WorkflowDefinitionSerializer
-
-    def get_queryset(self):
-        manager = cast(Any, WorkflowDefinition)._default_manager
-        qs = manager.filter(tenant=self.request.tenant).select_related("group")
-        group_id = self.request.query_params.get("group_id")
-        if group_id is not None:
-            if group_id == "":
-                qs = qs.filter(group__isnull=True)
-            else:
-                qs = qs.filter(group_id=group_id)
-        return qs.order_by("process_key")
-
-
+@@
 class WorkflowDefinitionDetailView(APIView):
+    """
+    Retrieve or update metadata of a specific workflow definition.
+    """
     def get(self, request, process_key: str):
-        manager = cast(Any, WorkflowDefinition)._default_manager
-        definition = (
-            manager.select_related("group")
-            .filter(tenant=request.tenant, process_key=process_key)
-            .first()
-        )
-        if definition is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(WorkflowDefinitionSerializer(definition).data)
-
-    def patch(self, request, process_key: str):
-        manager = cast(Any, WorkflowDefinition)._default_manager
-        group_manager = cast(Any, WorkflowGroup)._default_manager
-        definition = manager.filter(
-            tenant=request.tenant, process_key=process_key
-        ).first()
-        if definition is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        data = cast(dict[str, Any], request.data)
-        update_fields: list[str] = []
-
-        if "name" in data:
-            definition.name = str(data.get("name") or "").strip()
-            update_fields.append("name")
-        if "description" in data:
-            definition.description = str(data.get("description") or "").strip()
-            update_fields.append("description")
-        if "group_id" in data:
-            raw_group_id = data.get("group_id")
-            if raw_group_id in (None, "", 0, "0"):
-                definition.group = None
-                update_fields.append("group")
-            else:
-                group = group_manager.filter(
-                    tenant=request.tenant, id=raw_group_id
-                ).first()
-                if group is None:
-                    return Response(
-                        {"code": "invalid_group", "message": "Unknown group_id."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                definition.group = group
-                update_fields.append("group")
-
-        if update_fields:
-            definition.save(update_fields=update_fields)
-        return Response(WorkflowDefinitionSerializer(definition).data)
-
-
+@@
 class WorkflowDefinitionVersionDetailView(APIView):
+    """
+    Retrieve details of a specific version of a workflow definition.
+    Includes the BPMN XML.
+    """
     def get(self, request, process_key: str, version: int):
-        definition_manager = cast(Any, WorkflowDefinition)._default_manager
-        version_manager = cast(Any, WorkflowDefinitionVersion)._default_manager
-        definition = definition_manager.filter(
-            tenant=request.tenant,
-            process_key=process_key,
-        ).first()
-        if definition is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        version_entry = version_manager.filter(
-            tenant=request.tenant,
-            definition=definition,
-            version=version,
-        ).first()
-        if version_entry is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        response_serializer = WorkflowDefinitionVersionDetailSerializer(version_entry)
-        return Response(response_serializer.data)
-
-
+@@
 class WorkflowInstanceStartView(APIView):
+    """
+    Start a new execution instance of a specific workflow definition version.
+    Initializes the engine state and runs automatic tasks.
+    """
     def post(self, request, process_key: str, version: int):
-        serializer = WorkflowInstanceStartSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        validated_data = cast(dict[str, Any], serializer.validated_data)
-        correlation_id = str(validated_data.get("correlation_id", ""))
-        business_key = str(validated_data.get("business_key", ""))
-
-        definition_manager = cast(Any, WorkflowDefinition)._default_manager
-        version_manager = cast(Any, WorkflowDefinitionVersion)._default_manager
-        instance_manager = cast(Any, WorkflowInstance)._default_manager
-
-        definition = definition_manager.filter(
-            tenant=request.tenant,
-            process_key=process_key,
-        ).first()
-        if definition is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        version_entry = version_manager.filter(
-            tenant=request.tenant,
-            definition=definition,
-            version=version,
-        ).first()
-        if version_entry is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            run_result = start_workflow_from_definition(
-                version_entry,
-                correlation_id=correlation_id,
-                business_key=business_key,
-            )
-        except WorkflowRuntimeError as exc:
-            return Response(
-                {"code": "workflow_runtime_error", "message": str(exc)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        instance = instance_manager.create(
-            tenant=request.tenant,
-            definition_version=version_entry,
-            status=run_result.status,
-            correlation_id=correlation_id,
-            business_key=business_key,
-            serialized_state=run_result.serialized_state,
-        )
-
-        _create_audit_event(
-            request.tenant,
-            AuditEventType.INSTANCE_START,
-            correlation_id=correlation_id,
-            business_key=business_key,
-            workflow_instance=instance,
-            definition_version=version_entry,
-            payload={
-                "process_key": process_key,
-                "version": version,
-                "status": run_result.status,
-            },
-        )
-        _create_user_tasks_for_instance(
-            request.tenant, instance, run_result.waiting_user_tasks
-        )
-        _create_service_tasks_for_instance(
-            request.tenant, instance, run_result.waiting_service_tasks
-        )
-
-        response_serializer = WorkflowInstanceSerializer(instance)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-
+@@
 class WorkflowInstanceListView(ListAPIView):
+    """
+    List all execution instances for a specific process key.
+    """
     serializer_class = WorkflowInstanceSerializer
-
-    def get_queryset(self):
-        manager = cast(Any, WorkflowInstance)._default_manager
-        process_key = self.kwargs.get("process_key")
-        return (
-            manager.select_related(
-                "definition_version", "definition_version__definition"
-            )
-            .filter(
-                tenant=self.request.tenant,
-                definition_version__definition__process_key=process_key,
-            )
-            .order_by("-created_at")
-        )
-
-
+@@
 class WorkflowInstanceDetailView(APIView):
+    """
+    Retrieve full details of a workflow instance, including its BPMN XML,
+    current execution status, and a unified state object for the viewer.
+    """
     def get(self, request, instance_id: int):
-        manager = cast(Any, WorkflowInstance)._default_manager
-        instance = (
-            manager.select_related(
-                "definition_version", "definition_version__definition"
-            )
-            .filter(tenant=request.tenant, id=instance_id)
-            .first()
-        )
-        if instance is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        serializer = WorkflowInstanceDetailSerializer(instance)
-        payload = dict(serializer.data)
-        payload["bpmn_xml"] = instance.definition_version.bpmn_xml
-        payload["state"] = _build_instance_state(instance)
-        return Response(payload)
-
-
+@@
 class UserTaskListView(ListAPIView):
+    """
+    List pending UserTasks for a tenant.
+    Can be filtered by workflow instance.
+    """
     serializer_class = UserTaskSerializer
-
-    def get_queryset(self):
-        manager = cast(Any, UserTask)._default_manager
-        queryset = manager.filter(
-            tenant=self.request.tenant,
-            status=UserTaskStatus.PENDING,
-        )
-        workflow_instance_id = self.request.query_params.get("workflow_instance_id")
-        if workflow_instance_id:
-            queryset = queryset.filter(workflow_instance_id=workflow_instance_id)
-        return queryset.order_by("created_at")
-
-
+@@
 class UserTaskActorRoleListView(ListAPIView):
+    """
+    List all UserTasks for a tenant, with optional filtering by status, actor, or role.
+    Used for inbox views and task management.
+    """
     serializer_class = UserTaskSerializer
-
-    def get_queryset(self):
-        manager = cast(Any, UserTask)._default_manager
-        queryset = manager.filter(tenant=self.request.tenant)
-        workflow_instance_id = self.request.query_params.get("workflow_instance_id")
-        if workflow_instance_id:
-            queryset = queryset.filter(workflow_instance_id=workflow_instance_id)
-        status_filter = self.request.query_params.get("status")
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        actor_identity = self.request.query_params.get("actor")
-        if actor_identity:
-            queryset = queryset.filter(actor_identity=actor_identity)
-        role_external_id = self.request.query_params.get("role")
-        if role_external_id:
-            role_manager = cast(Any, RbacRole)._default_manager
-            role_entry = role_manager.filter(
-                tenant=self.request.tenant,
-                external_id=role_external_id,
-            ).first()
-            if role_entry is None:
-                return queryset.none()
-            user_manager = cast(Any, DirectoryUser)._default_manager
-            users = user_manager.filter(
-                tenant=self.request.tenant,
-                user_roles__role=role_entry,
-                user_roles__tenant=self.request.tenant,
-            ).distinct()
-            identities = list(users.values_list("external_id", flat=True))
-            identities.extend(list(users.values_list("email", flat=True)))
-            if not identities:
-                return queryset.none()
-            queryset = queryset.filter(actor_identity__in=identities)
-        return queryset.order_by("created_at")
-
-
+@@
 class AuditEventListView(ListAPIView):
+    """
+    Query the audit trail for workflow events.
+    Filterable by workflow instance or business key.
+    """
     serializer_class = AuditEventSerializer
-
-    def get_queryset(self):
-        manager = cast(Any, AuditEvent)._default_manager
-        queryset = manager.filter(tenant=self.request.tenant)
-        workflow_instance_id = self.request.query_params.get("workflow_instance_id")
-        if workflow_instance_id:
-            queryset = queryset.filter(workflow_instance_id=workflow_instance_id)
-        business_key = self.request.query_params.get("business_key")
-        if business_key:
-            queryset = queryset.filter(business_key=business_key)
-        return queryset.order_by("-created_at")
-
-
+@@
 class UserTaskCompleteView(APIView):
+    """
+    Submit human input to complete a UserTask and continue workflow execution.
+    Enforces idempotency using the 'Idempotency-Key' header.
+    """
     def post(self, request, task_id: int):
+@@
+class ServiceTaskListView(ListAPIView):
+    """
+    List ServiceTask execution records for a tenant.
+    """
+    serializer_class = ServiceTaskSerializer
+@@
+class ServiceTaskStartView(APIView):
+    """
+    Initiate execution of an automated ServiceTask.
+    Performs the REST API call to the tenant's system.
+    """
+    def post(self, request, task_id: int):
+@@
+class ServiceTaskCallbackView(APIView):
+    """
+    Webhook endpoint for async ServiceTasks to report completion.
+    Verifies HMAC signature using the tenant's API key.
+    """
+    def post(self, request, task_id: int):
+
         raw_payload = request.data
         payload_data = None
         if isinstance(raw_payload, Mapping):

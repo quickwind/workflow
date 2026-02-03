@@ -8,12 +8,22 @@ from django.db.models import Q
 
 
 class Tenant(models.Model):
+    """
+    Represents a business application tenant that uses the shared workflow service.
+    Each tenant is isolated and has its own workflow definitions, instances, and catalog.
+    """
+
     name = models.CharField(max_length=120)
     slug = models.SlugField(max_length=120, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
 class TenantScopedModel(models.Model):
+    """
+    Base abstract model for all tenant-specific data.
+    Ensures that data is always associated with a tenant for multi-tenancy isolation.
+    """
+
     tenant = models.ForeignKey(
         Tenant, on_delete=models.PROTECT, related_name="%(class)ss"
     )
@@ -23,16 +33,23 @@ class TenantScopedModel(models.Model):
 
 
 class TenantApiKey(TenantScopedModel):
+    """
+    API keys used by tenant applications to authenticate with the shared service.
+    Keys are hashed for security.
+    """
+
     name = models.CharField(max_length=120, blank=True)
     key_hash = models.CharField(max_length=64, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     @staticmethod
     def hash_key(raw_key: str) -> str:
+        """Computes SHA-256 hash of a raw API key."""
         return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
     @classmethod
     def authenticate(cls, raw_key: str) -> "TenantApiKey | None":
+        """Authenticates a raw API key by comparing its hash with stored hashes."""
         key_hash = cls.hash_key(raw_key)
         manager = cast(Any, TenantApiKey)._default_manager
         result = manager.select_related("tenant").filter(key_hash=key_hash).first()
@@ -40,6 +57,11 @@ class TenantApiKey(TenantScopedModel):
 
 
 class TenantDiscoveryEndpoint(TenantScopedModel):
+    """
+    Configuration for a tenant's discovery endpoint (e.g., .well-known).
+    The shared service uses this to sync automation capabilities and RBAC data.
+    """
+
     endpoint_url = models.URLField(max_length=500)
     api_key = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -50,6 +72,11 @@ class TenantDiscoveryEndpoint(TenantScopedModel):
 
 
 class TenantDiscoveryPayload(TenantScopedModel):
+    """
+    Stores the raw discovery data fetched from a tenant's endpoint.
+    Used for auditing and troubleshooting sync issues.
+    """
+
     fetched_at = models.DateTimeField(auto_now_add=True)
     schema_version = models.CharField(max_length=32)
     payload = models.JSONField()
@@ -58,6 +85,11 @@ class TenantDiscoveryPayload(TenantScopedModel):
 
 
 class CapabilityCatalogEntry(TenantScopedModel):
+    """
+    Represents an automation capability group provided by a tenant (e.g., "HR Service").
+    Contains metadata and a list of specific service tasks.
+    """
+
     external_id = models.CharField(max_length=120)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -77,6 +109,11 @@ class CapabilityCatalogEntry(TenantScopedModel):
 
 
 class CatalogServiceTask(TenantScopedModel):
+    """
+    A specific automation task within a capability catalog entry (e.g., "Send Email").
+    Defines the REST API endpoint that the workflow service will call.
+    """
+
     catalog_entry = models.ForeignKey(
         CapabilityCatalogEntry, on_delete=models.CASCADE, related_name="service_tasks"
     )
@@ -94,6 +131,11 @@ class CatalogServiceTask(TenantScopedModel):
 
 
 class RbacRole(TenantScopedModel):
+    """
+    Roles defined in the tenant application, synced via discovery.
+    Used for assigning UserTasks in the workflow.
+    """
+
     external_id = models.CharField(max_length=120)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -108,20 +150,20 @@ class RbacRole(TenantScopedModel):
 
 
 class RbacPermission(TenantScopedModel):
+    """
+    Permissions defined in the tenant application, synced via discovery.
+    """
+
     external_id = models.CharField(max_length=120)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
 
-    class Meta(TenantScopedModel.Meta):
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "external_id"],
-                name="uniq_permission_per_tenant",
-            )
-        ]
-
 
 class RbacRolePermission(TenantScopedModel):
+    """
+    Many-to-many relationship between roles and permissions.
+    """
+
     role = models.ForeignKey(
         "RbacRole", on_delete=models.CASCADE, related_name="role_permissions"
     )
@@ -129,21 +171,274 @@ class RbacRolePermission(TenantScopedModel):
         "RbacPermission", on_delete=models.CASCADE, related_name="role_permissions"
     )
 
-    class Meta(TenantScopedModel.Meta):
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "role", "permission"],
-                name="uniq_role_permission_per_tenant",
-            )
-        ]
-
 
 class DirectoryUser(TenantScopedModel):
+    """
+    Users from the tenant's user directory, synced via discovery.
+    Used for task assignment and email notifications.
+    """
+
     external_id = models.CharField(max_length=120)
     email = models.EmailField(max_length=254)
     display_name = models.CharField(max_length=200, blank=True)
     is_active = models.BooleanField()
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class DirectoryUserRole(TenantScopedModel):
+    """
+    Assignment of roles to users in the tenant's directory.
+    """
+
+    user = models.ForeignKey(
+        "DirectoryUser", on_delete=models.CASCADE, related_name="user_roles"
+    )
+    role = models.ForeignKey(
+        "RbacRole", on_delete=models.CASCADE, related_name="user_roles"
+    )
+
+
+class WorkflowDefinition(TenantScopedModel):
+    """
+    Represents a BPMN workflow definition for a tenant.
+    Organized into groups (folders) and versioned.
+    """
+
+    group = models.ForeignKey(
+        "WorkflowGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="definitions",
+    )
+    process_key = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WorkflowGroup(TenantScopedModel):
+    """
+    Hierarchical grouping of workflow definitions (folder structure).
+    """
+
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WorkflowDefinitionVersion(TenantScopedModel):
+    """
+    A specific immutable version of a workflow definition.
+    Contains the BPMN XML and configuration snapshots.
+    """
+
+    definition = models.ForeignKey(
+        WorkflowDefinition, on_delete=models.CASCADE, related_name="versions"
+    )
+    version = models.PositiveIntegerField()
+    bpmn_xml = models.TextField()
+    form_schema_refs = models.JSONField(default=list, blank=True)
+    catalog_binding_placeholders = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class WorkflowInstanceStatus(models.TextChoices):
+    """Statuses for a workflow execution instance."""
+
+    RUNNING = "running"
+    WAITING = "waiting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class WorkflowInstance(TenantScopedModel):
+    """
+    An execution of a specific workflow definition version.
+    Pinned to the version it was started with.
+    """
+
+    definition_version = models.ForeignKey(
+        WorkflowDefinitionVersion,
+        on_delete=models.PROTECT,
+        related_name="instances",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=WorkflowInstanceStatus.choices,
+        default=WorkflowInstanceStatus.RUNNING,
+    )
+    correlation_id = models.CharField(max_length=200, blank=True)
+    business_key = models.CharField(max_length=200, blank=True)
+    serialized_state = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class AuditEventType(models.TextChoices):
+    """Types of events recorded in the audit trail."""
+
+    DEFINITION_UPLOAD = "definition_upload"
+    INSTANCE_START = "instance_start"
+    USER_TASK_COMPLETE = "user_task_complete"
+    SERVICE_TASK_START = "service_task_start"
+    SERVICE_TASK_CALLBACK = "service_task_callback"
+
+
+class AuditEvent(TenantScopedModel):
+    """
+    Tenant-scoped audit trail for all workflow-related actions.
+    """
+
+    event_type = models.CharField(max_length=120, choices=AuditEventType.choices)
+    actor_identity = models.CharField(max_length=200, blank=True)
+    correlation_id = models.CharField(max_length=200, blank=True)
+    business_key = models.CharField(max_length=200, blank=True)
+    workflow_instance = models.ForeignKey(
+        WorkflowInstance,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_events",
+    )
+    definition_version = models.ForeignKey(
+        WorkflowDefinitionVersion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_events",
+    )
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class UserTaskStatus(models.TextChoices):
+    """Statuses for tasks requiring human interaction."""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+
+
+class UserTask(TenantScopedModel):
+    """
+    A task in a workflow instance that requires user input.
+    End users interact with this via the tenant application.
+    """
+
+    workflow_instance = models.ForeignKey(
+        WorkflowInstance, on_delete=models.CASCADE, related_name="user_tasks"
+    )
+    task_id = models.CharField(max_length=120)
+    name = models.CharField(max_length=200, blank=True)
+    task_type = models.CharField(max_length=120, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=UserTaskStatus.choices,
+        default=UserTaskStatus.PENDING,
+    )
+    actor_identity = models.CharField(max_length=200, blank=True)
+    action = models.CharField(max_length=200, blank=True)
+    action_data = models.JSONField(default=dict, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class UserTaskCompletionIdempotency(TenantScopedModel):
+    """
+    Ensures user task completion is idempotent using a unique key.
+    Prevents double-completion and unintended side effects.
+    """
+
+    user_task = models.ForeignKey(
+        UserTask, on_delete=models.CASCADE, related_name="idempotency_records"
+    )
+    idempotency_key = models.CharField(max_length=200)
+    request_hash = models.CharField(max_length=64)
+    response_payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ServiceTaskStatus(models.TextChoices):
+    """Statuses for automated REST API tasks."""
+
+    PENDING = "pending", "Pending"
+    IN_PROGRESS = "in_progress", "In progress"
+    WAITING = "waiting", "Waiting"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+
+
+class ServiceTaskExecutionMode(models.TextChoices):
+    """Execution modes for service tasks."""
+
+    SYNC = "sync"
+    ASYNC = "async"
+
+
+class ServiceTask(TenantScopedModel):
+    """
+    An execution of an automated step in a workflow.
+    Calls a REST API defined in the tenant's capability catalog.
+    """
+
+    workflow_instance = models.ForeignKey(
+        WorkflowInstance, on_delete=models.CASCADE, related_name="service_tasks"
+    )
+    task_id = models.CharField(max_length=120)
+    name = models.CharField(max_length=200, blank=True)
+    task_type = models.CharField(max_length=120, blank=True)
+    element_id = models.CharField(max_length=200, blank=True)
+    element_name = models.CharField(max_length=200, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=ServiceTaskStatus.choices,
+        default=ServiceTaskStatus.PENDING,
+    )
+    execution_mode = models.CharField(
+        max_length=10,
+        choices=ServiceTaskExecutionMode.choices,
+        blank=True,
+    )
+    catalog_service_task = models.ForeignKey(
+        CatalogServiceTask,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="service_task_executions",
+    )
+    request_payload = models.JSONField(default=dict, blank=True)
+    response_payload = models.JSONField(default=dict, blank=True)
+    last_error = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ServiceTaskCallbackIdempotency(TenantScopedModel):
+    """
+    Ensures async service task callbacks are idempotent.
+    """
+
+    service_task = models.ForeignKey(
+        ServiceTask, on_delete=models.CASCADE, related_name="callback_idempotency"
+    )
+    idempotency_key = models.CharField(max_length=200)
+    request_hash = models.CharField(max_length=64)
+    response_payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta(TenantScopedModel.Meta):
